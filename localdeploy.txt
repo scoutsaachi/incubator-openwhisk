@@ -45,7 +45,33 @@ Run docker ps on master. You should see "whisk_docker_registry"
 On master only, run (from the openwhisk root dir, note this might take a while):
   sudo ./gradlew distDocker -PdockerHost=<master IP>:4243 -PdockerRegistry=<master IP>:5000
 
+From master perform: <if restarting a deployment, start here>
+  sudo ansible-playbook -i environments/distributed couchdb.yml
+  sudo ansible-playbook -i environments/distributed initdb.yml
+  sudo ansible-playbook -i environments/distributed wipe.yml
+  sudo ansible-playbook -i environments/distributed kafka.yml
+  sudo ansible-playbook -i environments/distributed controller.yml
 
+run docker ps on Master. you should have controller0, controller1, kafka, zookeeper, couchdb, whisk_docker_registry as docker daemons.
+
+Go to the invokers and perform (on each):
+  sudo ansible-playbook -i environments/distInvoker invoker.yml
+Run docker ps on each of the invokers, and you should see the invoker daemon plus some start up containers
+
+Back on the master VM, run:
+  sudo ansible-playbook -i environments/distributed edge.yml
+  sudo ansible-playbook -i environments/distributed routemgmt.yml
+Run docker ps on the master. You should see an nginx container has been added.
+
+On master run:
+  sudo ansible-playbook -i environments/distributed postdeploy.yml
+
+To try out an action:
+  ../bin/wsk property set --auth $(cat files/auth.whisk.system) --apihost <master IP>
+  ../bin/wsk -i -v action invoke /whisk.system/utils/echo -p message hello --result
+You should get a hello message back. You're all done!
+
+When shutting down, make sure to shut down the invidual docker containers on each machine first.
 
 
 
