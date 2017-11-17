@@ -4,26 +4,28 @@
 ansible ansible_connection=local
 
 [registry]
-10.3.2.153              ansible_host=10.3.2.153
+10.0.0.4          ansible_host=10.0.0.4
 
 [edge]
-10.3.2.154              ansible_host=10.3.2.154
-
-[apigateway:children]
-edge
-
-[redis:children]
-edge
+10.0.0.4          ansible_host=10.0.0.4 ansible_connection=local
 
 [controllers]
-10.3.2.155              ansible_host=10.3.2.155
+controller0         ansible_host=10.0.0.4 ansible_connection=local
+controller1         ansible_host=10.0.0.4 ansible_connection=local
 
 [kafka]
-10.3.2.156              ansible_host=10.3.2.156
+10.0.0.4          ansible_host=10.0.0.4 ansible_connection=local
 
 [invokers]
-10.3.2.158              ansible_host=10.3.2.158
-10.3.2.159              ansible_host=10.3.2.159
+invoker0            ansible_host=10.0.0.5 ansible_connection=local
+invoker1            ansible_host=10.0.0.6 ansible_connection=local
 
+; db group is only used if db_provider is CouchDB
 [db]
-10.3.2.16               ansible_host=10.3.2.16
+10.0.0.4          ansible_host=10.0.0.4 ansible_connection=local
+
+[redis]
+10.0.0.4          ansible_host=10.0.0.4 ansible_connection=local
+
+[apigateway]
+10.0.0.4          ansible_host=10.0.0.4 ansible_connection=local
