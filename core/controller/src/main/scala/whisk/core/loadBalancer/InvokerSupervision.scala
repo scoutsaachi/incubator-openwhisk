@@ -139,6 +139,8 @@ class InvokerPool(childFactory: (ActorRefFactory, InstanceId) => ActorRef,
     val raw = new String(bytes, StandardCharsets.UTF_8)
     PingMessage.parse(raw) match {
       case Success(p: PingMessage) =>
+        // swap in the new values for profile information
+        logging.info(this, s"received from ping: $raw")
         self ! p
         invokerPingFeed ! MessageFeed.Processed
 
