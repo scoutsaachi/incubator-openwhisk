@@ -5,5 +5,4 @@
 - hosts: all:!ansible
   serial: 1
   roles:
-  sudo: True
   - prereq
