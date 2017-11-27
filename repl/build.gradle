@@ -1,0 +1,22 @@
+apply plugin:'scala'
+dependencies {
+    compile "org.scala-lang:scala-library:${gradle.scala.version}"
+    compile project(':common:scala')
+    compile "org.scala-lang:scala-compiler:${gradle.scala.version}"
+}
+
+repositories {
+    mavenCentral()
+}
+// The path of the scala-compiler jar
+def scalaPath = buildscript.configurations.classpath.find {
+    it.name == "scala-compiler-2.11.8.jar"
+}
+// The classpath of this project and its dependencies
+def classpath = sourceSets.main.runtimeClasspath.asPath
+
+// Prints the classpath needed to launch the REPL
+task printClasspath << {
+    println "${scalaPath}:${classpath}"
+}
+

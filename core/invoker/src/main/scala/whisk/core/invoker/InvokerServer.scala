@@ -18,6 +18,9 @@
 package whisk.core.invoker
 
 import whisk.http.BasicRasService
+//import whisk.utils.DockerStats
+//import spray.json._
+//import DefaultJsonProtocol._
 
 /**
  * Implements web server to handle certain REST API calls.
@@ -27,4 +30,10 @@ class InvokerServer() extends BasicRasService {
 
   override val numberOfInstances = 1
   override val instanceOrdinal = 1
+
+  override val ping = path("ping") {
+    //val jsonVals = DockerStats.getIds().toJson.compactPrint
+    //get { complete(jsonVals) }
+    get {complete("pong")}
+  }
 }

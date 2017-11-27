@@ -20,8 +20,6 @@ package whisk.core.invoker
 import spray.json._
 import java.nio.charset.StandardCharsets
 import java.time.Instant
-import sys.process._
-import scala.language.postfixOps
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.Failure

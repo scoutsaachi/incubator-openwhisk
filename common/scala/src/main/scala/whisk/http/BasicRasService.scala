@@ -18,11 +18,8 @@
 package whisk.http
 
 import akka.event.Logging
-import whisk.utils
-
 import whisk.common.Logging
 import whisk.common.TransactionId
-import spray.json._
 
 /**
  * This trait extends the BasicHttpService with a standard "ping" endpoint which
@@ -41,7 +38,6 @@ trait BasicRasService extends BasicHttpService {
   }
 
   val ping = path("ping") {
-    val jsonVals = DockerStats.getIds()toJson.compactPrint
-    get { complete(jsonVals) }
+    get { complete("pong") }
   }
 }
