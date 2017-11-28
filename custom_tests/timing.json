@@ -1,0 +1,39 @@
+{
+    "namespace": "whisk.system",
+    "name": "throughput",
+    "version": "0.0.2",
+    "subject": "whisk.system",
+    "activationId": "d119d8d6c5834c5899d8d6c5833c58d6",
+    "start": 1510204645827,
+    "end": 1510204646182,
+    "duration": 355,
+    "response": {
+        "status": "success",
+        "statusCode": 0,
+        "success": true,
+        "result": {
+            "greeting": "Hello World!0"
+        }
+    },
+    "logs": [],
+    "annotations": [
+        {
+            "key": "limits",
+            "value": {
+                "logs": 10,
+                "memory": 256,
+                "timeout": 60000
+            }
+        },
+        {
+            "key": "path",
+            "value": "whisk.system/throughput"
+        },
+        {
+            "key": "kind",
+            "value": "python:2"
+        }
+    ],
+    "publish": false
+}
+
