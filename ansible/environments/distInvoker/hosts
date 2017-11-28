@@ -1,0 +1,30 @@
+; the first parameter in a host is the inventory_hostname
+
+; used for local actions only, change invoker address to the one of this machine, and have matching invoker name as host
+ansible ansible_connection=local
+
+[registry]
+10.0.0.4          ansible_host=10.0.0.4
+
+[edge]
+10.0.0.4          ansible_host=10.0.0.4 ansible_connection=local
+
+[controllers]
+controller0         ansible_host=10.0.0.4 ansible_connection=local
+controller1         ansible_host=10.0.0.4 ansible_connection=local
+
+[kafka]
+10.0.0.4          ansible_host=10.0.0.4 ansible_connection=local
+
+[invokers]
+invoker0            ansible_host=10.0.0.5 ansible_connection=local
+
+; db group is only used if db_provider is CouchDB
+[db]
+10.0.0.4          ansible_host=10.0.0.4 ansible_connection=local
+
+[redis]
+10.0.0.4          ansible_host=10.0.0.4 ansible_connection=local
+
+[apigateway]
+10.0.0.4          ansible_host=10.0.0.4 ansible_connection=local

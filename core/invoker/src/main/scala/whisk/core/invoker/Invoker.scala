@@ -47,7 +47,6 @@ import whisk.http.BasicHttpService
 import whisk.spi.SpiLoader
 import whisk.utils.ExecutionContextFactory
 import whisk.common.TransactionId
-
 case class CmdLineArgs(name: Option[String] = None, id: Option[Int] = None)
 
 object Invoker {
@@ -73,6 +72,7 @@ object Invoker {
       Map(invokerName -> "")
 
   def main(args: Array[String]): Unit = {
+    //val dockerTest = DockerStats.getIds()
     Kamon.start()
 
     implicit val ec = ExecutionContextFactory.makeCachedThreadPoolExecutionContext()
@@ -194,7 +194,7 @@ object Invoker {
         case Failure(t) => logger.error(this, s"failed to ping the controller: $t")
       }
     })
-
+    //val dockerTest = DockerStats.getIds()
     val port = config.servicePort.toInt
     BasicHttpService.startService(new InvokerServer().route, port)(actorSystem, ActorMaterializer.create(actorSystem))
   }

@@ -1,0 +1,79 @@
+The steps to deploy on a distributed setup are as follows.
+
+Suppose we have 3 machines. We'll call them:
+Master - will run everything except for the actual functions
+Invoker0 - will run one of the invokers
+Invoker1 - will run the other invoker
+
+First, clone this repository onto each of the machines. Then install the necessary requirements:
+  (cd tools/ubuntu-setup && ./all.sh)
+  
+Run docker ps on each. Docker should be up, but there should be no containers at the moment (if there are, stop them
+with the appropriate clean method (see below)).
+
+We now need to tell the master and the invokers who each other are. In the Master's ansible/environments/distributed folder,
+change the IP addresses of the hosts file to match the IP addresses of invoker0 and invoker1. Also make sure that the number
+invoker instances in group_vars/all matches what you expect (so in this case 2). In each of the invoker's
+ansible/environments/distInvoker/hosts file, add the Master's IP address for everything except the invoker. Make sure there
+is only one invoker listed in the hosts file, and it is the IP of the invoker's machine. Also make sure that in the
+distInvoker/group_var/all that only one invoker is listed.
+
+From this point on, all commands should be run from the ansible directory
+
+At this point, from master, run:
+  ansible all -i environments/distributed -m ping
+You should get all green. If you don't, then there's something wrong with the network connectivity.
+
+On master, run:
+  ansible-playbook -i environments/distributed setup.yml
+  sudo ansible-playbook -i environments/distributed prereq_build.yml
+
+On each of the invokers, run:
+  ansible-playbook -i environments/distInvoker setup.yml
+  sudo ansible-playbook -i environments/distInvoker prereq_build.yml
+
+It's really only critical that the master set up scripts run to completion. You also should only have to do this once.
+
+Run docker ps on each of the machines. There should be no containers running. If there is, run
+  sudo ansible-playbook -i environments/distributed <yml_name>.yml -e mode=clean
+Where <yml_name>.yml is the name of the yml file that created the container (i.e registry.yml, invoker.yml, etc)
+
+On master only, distribute the registry:
+  ansible-playbook -i environments/distributed registry.yml
+Run docker ps on master. You should see "whisk_docker_registry"
+
+On master only, run (from the openwhisk root dir, note this might take a while):
+  sudo ./gradlew distDocker -PdockerHost=<master IP>:4243 -PdockerRegistry=<master IP>:5000
+
+From master perform: <if restarting a deployment, start here>
+  sudo ansible-playbook -i environments/distributed couchdb.yml
+  sudo ansible-playbook -i environments/distributed initdb.yml
+  sudo ansible-playbook -i environments/distributed wipe.yml
+  sudo ansible-playbook -i environments/distributed kafka.yml
+  sudo ansible-playbook -i environments/distributed controller.yml
+
+run docker ps on Master. you should have controller0, controller1, kafka, zookeeper, couchdb, whisk_docker_registry as docker daemons.
+
+Go to the invokers and perform (on each):
+  sudo ansible-playbook -i environments/distInvoker invoker.yml
+Run docker ps on each of the invokers, and you should see the invoker daemon plus some start up containers
+
+Back on the master VM, run:
+  sudo ansible-playbook -i environments/distributed edge.yml
+  sudo ansible-playbook -i environments/distributed routemgmt.yml
+Run docker ps on the master. You should see an nginx container has been added.
+
+On master run:
+  sudo ansible-playbook -i environments/distributed postdeploy.yml
+
+To try out an action:
+  ../bin/wsk property set --auth $(cat files/auth.whisk.system) --apihost <master IP>
+  ../bin/wsk -i -v action invoke /whisk.system/utils/echo -p message hello --result
+You should get a hello message back. You're all done!
+
+When shutting down, make sure to shut down the invidual docker containers on each machine first.
+
+
+
+
+
