@@ -47,7 +47,6 @@ import whisk.http.BasicHttpService
 import whisk.spi.SpiLoader
 import whisk.utils.ExecutionContextFactory
 import whisk.common.TransactionId
-import whisk.utils.DockerStats
 case class CmdLineArgs(name: Option[String] = None, id: Option[Int] = None)
 
 object Invoker {
