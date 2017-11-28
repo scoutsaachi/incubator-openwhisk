@@ -1,14 +1,14 @@
 package whisk.utils
 
 import spray.json._
-//import sys.process._
-//import scala.language.postfixOps
+import java.time.OffsetDateTime
+import sys.process._
+import scala.language.postfixOps
 
-case class DockerProfile(name: String, readTime: Option[String], activationUsage: BigDecimal,
+case class DockerProfile(name: String, readTime: OffsetDateTime, activationUsage: BigDecimal,
                          systemUsage: BigDecimal, totalIo: BigDecimal, networkUsage: BigDecimal)
 
 object DockerStats {
-
 
     def getNestedJSValue(keys: List[String], finalKey: String, obj: Option[JsObject]) : Option[JsValue] = {
        var curr_obj = obj
@@ -21,6 +21,7 @@ object DockerStats {
        val resp = scala.io.Source.fromURL(s"http://0.0.0.0:4243/containers/$name/stats?stream=false").mkString
        val jsonObject = Option(resp.parseJson).map(_.asInstanceOf[JsObject])
        val readVal = getNestedJSValue(List(), "read", jsonObject).map(_.toString)
+       val readTime = readVal.map(OffsetDateTime.parse(_)).getOrElse(OffsetDateTime.now())
        // cpu
        val activation_usage = getNestedJSValue(List("cpu_stats", "cpu_usage"), "total_usage", jsonObject).map(_.asInstanceOf[JsNumber]).getOrElse(JsNumber(0)).value
        val system_usage = getNestedJSValue(List("cpu_stats"), "system_cpu_usage", jsonObject).map(_.asInstanceOf[JsNumber]).getOrElse(JsNumber(0)).value
@@ -34,7 +35,16 @@ object DockerStats {
             .map(_.asInstanceOf[JsObject])
             .map(x => getNestedJSValue(List(), "rx_bytes", Option(x)).map(_.asInstanceOf[JsNumber]).getOrElse(JsNumber(0))).map(_.value))
        val networkBytes = network_byte_values.sum
-       DockerProfile(name, readVal, activation_usage, system_usage, totalIo, networkBytes)
+       DockerProfile(name, readTime, activation_usage, system_usage, totalIo, networkBytes)
+    }
+
+    def getAllStats() : Map[String, DockerProfile] = {
+        val dockerNames : String = "sudo docker ps --format {{.Names}} --filter name=wsk" !!
+        val dockerNameSeq = dockerNames.split("\n").toList
+        (for(dockerName <- dockerNameSeq) yield {
+            val prof = getExactContainerStat(dockerName)
+            dockerName -> prof
+        }).toMap
     }
 
     //def getExact() : Map[String, DockerProfile] = {
