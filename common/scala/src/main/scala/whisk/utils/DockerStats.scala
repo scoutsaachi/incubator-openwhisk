@@ -6,6 +6,8 @@ import sys.process._
 import scala.language.postfixOps
 import java.time.Duration
 import scala.util.{Try, Success, Failure}
+import scala.concurrent.{Future, ExecutionContext, Await}
+import scala.concurrent.duration.{Duration => SDuration}
 
 case class DockerProfile(name: String, readTime: OffsetDateTime, cpuPerc: BigDecimal,
                          totalIo: BigDecimal, networkUsage: BigDecimal,
@@ -104,10 +106,14 @@ object DockerStats {
         val futureList = (for(dockerNameTime <- dockerNamesTimesSeq) yield Future{
             val dockerName = dockerNameTime(0).substring(1)
             val dockerTime = OffsetDateTime.parse(dockerNameTime(1))
-            var prof = getExactContainerStat(dockerName, Option(dockerTime)) // Option[DockerProfile]
+            getExactContainerStat(dockerName, Option(dockerTime)) // Option[DockerProfile]
         }).toList
         val futureSeq = Future.sequence(futureList)
-        val collectedProfiles = Await.ready(f, Duration.Inf).value.get // List of Option[DockerProfile]
-        collectedProfiles.flatten.map(_.name -> _).toMap
+        //futureSeq onComplete {
+        //    case Success(results) => results.flatten.map(p => p.name -> p).toMap
+        //    case Failure(t) => new Map[String, DockerProfile]() // todo, put some logging here
+        //}
+        val collectedProfiles = Await.result(futureSeq, SDuration.Inf) // List of Option[DockerProfile]
+        collectedProfiles.flatten.map(p => p.name -> p).toMap
     }
 }
