@@ -1,0 +1,102 @@
+Profiling:
+
+A. Per invoker:
+	Store a D_PROF = Map[ContainerName, DockerProfile] and D_INTERV = Map[ContainerName, DockerInterval]
+	The D_PROF is used to comput the next D_INTERV. The DockerProfile (one per running container) has the following fields:
+		name: Container name
+		readTime: the time at which stats were gathered
+		cpuPerc: the cpu percentage recorded at that time (typically collected over the period of a second)
+		totalIo: the number of IO bytes read/written (cummulative for the container)
+		networkUsage: the number of network bytes transferred (cummulative for the container)
+		containerCreated: the time the the container was created
+	The D_INTERV containers important stats that need to be sent to the controller. DockerInterval contains:
+		name: Container Name
+		cpuPerc: the latest cpu percentage
+		ioThroughput: bytes read/written in this interval/milliseconds in this interval
+		networkThroughput: bytes transferred on network in this interval/millisconds in this interval
+	The D_INTERV is created by comparing the old and new docker profile for a container. If an old docker profile does not exist,
+	then the beginning interval time is regarded as the container creation time and the delta for IO and network is considered
+	to be the cummulative IO and network reported in the docker profile.
+
+	The invoker should have a background thread that is continually polling to get new DockerProfiles to update it's D_INTERV and D_PROF
+	The invoker should send the controller D_INTERV via the heartbeat message
+
+B. Per activation function
+	The invoker, when starting an activation function, should first get the DockerProfile for the container it is about to run on (if the
+	container doesn't exist we can use the same logic to create an interval above). When the function finishes, the function should again
+	retrieve the docker profile for that container and compute a docker interval as above. that docker interval should be sent back to the controller
+	and stored in an easily accessible place in the database
+
+Scheduling:
+When scheduling an activation function, we consider CPU, IO, and network usage of the function and of the invoker. Specifically we seek to maximize:
+	J = alpha||cpuHappiness||^2 - beta ioThpt - gamma networkThpt
+where alpha, beta, and gamma are weights, cpuHappiness is the predicted CPU happiness vector (defined below), ioThpt is the cummulative predicted IO throughput,
+and networkThpt the cummulative predicted network throughput.
+
+We compute J for each invoker and pick the invoker that would give us the highest value.
+
+A. CPU Happiness
+	How CPU bound a thread is is a difficult thing to measure. Therefore, we make some assumptions based on our setup. Right now, CPU is allocated
+	fairly as follows. For N jobs, each job is initially allocated 1/N of the CPU. If a job doesn't need 1/N of the CPU, that CPU is donated fairly
+	to the other jobs who would still use that CPU.
+
+	Let p be the vector of CPU percentages in the invoker.
+
+	Let p* be the percentages desired by each job if they were acting in isolation. Note, calculating p* is a fuzzy process.
+	Categorizing whether a job is bottlenecked by CPU is hard. Say in a vector with 5 jobs, job i has a CPU percentage of 20%. This could mean that
+	either the CPU only needs 20%, and even if the job was given more CPU the CPU percentage would stay at 20%. Or, this could mean that the job
+	doesn't have enough CPU and is being capped at 20%. We really don't know without actively benchmarking, and the whole point of this is to passively benchmark.
+
+	Under our setup, the only non-job container is an invoker. Therefore, let A be the CPU percentage leftover for the jobs (i.e, if the invoker is taking
+	up 5% of the CPU, A = 95%). There are two cases: the CPU is fully utilized, and the CPU is not fully utilized. We determine
+	if the CPU is fully utilized by summing the CPU percentages. If the sum + epsilon >= A, then the CPU is fully utilized.
+
+	If the CPU is not fully utilized, then each process is already using it's desired value. p* = p
+
+	If the CPU is fully utilized, then some processes are (we assume) not getting as much CPU as they desire. Then we perform the following calculation:
+	with some epsilon error, we pick the max jobs from p. These jobs we assume are completely CPU bound (their value in p* is 1). The rest of the jobs
+	must be happy with their CPU (otherwise they would be sharing more of the excess CPU equally). Those jobs have p* = p.
+
+	We now want to predict p', which is the percentages that we think will occur if we add our new activation function to this invoker. Let p*_a be the
+	predicted CPU desires for our new activation function (more on this later).
+
+	Let n = the length of p + 1 (i.e the number of jobs in this new configuration). The base fair share is A/n. Iterate as follows:
+	shareLeft = A
+	p' = [0...0] \\ length n
+	while shareLeft > 0:
+		shareUsed = 0
+		shareToGive = shareLeft/(number of unsatisfied jobs)
+		for i in range(0, n):
+			if p'[i] == p*[i]: continue (job is satisfied)
+			newPShare = min(shareToGive, p*[i] - p'[i])
+			p'[i] += newPShare
+			shareUsed += newPShare
+		shareLeft -= shareUsed
+
+	At this point, we've predicted the CPU outcome if we place this function on this invoker. We now define happiness as h_i = p'_i/p*_i
+	(i.e given cpu percentage over desired cpu percentage). We define our cpuHappiness vector as h with h_i defined above, and we seek to
+	maximize on ||h||^2.
+
+	Something glossed over above is how we find p*_a (the desired CPU of the new activation function). This is again, difficult. From docker
+	we can see over time how much of the CPU the function took during it's last run, but it's impossible to know how much it was throttled.
+	Also, since we calculate over the total CPU used by the function, performing retroactive analysis like we did for p isn't possible. Therefore
+	We make the simplifying assumption: the desired CPU percentage for the activation function is the maximum used CPU percentage seen so far.
+	This is making the assumption that at some point the activation function needed that much CPU, and anything below is bottlenecked.
+
+	There are two issues. 1, the maximum CPU usage seen so far might vastly understate the desired amount of CPU. For example, a CPU
+	bound thread that has always been contending for CPU might have a max CPU usage seen at 50% but actually wants 100%. Therefore,
+	with some probability, we just set p*_a to be 1 in order to "explore" (i.e assume that the thread really wants the entire CPU
+	and see if we can bump up the max CPU usage score). Secondly, an artificial spike of max CPU usage will leave an artificially
+	high maximum CPU usage for a long time. Therefore, with some probability, we discard the current max CPU usage seen and just
+	set the newest CPU usage as the max usage. This is not ideal, but really the best we can hope for at this point. Moreover,
+	since we're looking just at holistic invoker health, it's not that important to be exact because we also have the other jobs
+	that are more well defined.
+
+B. IO throughput
+	IO throughput is just the summed throughputs from all of the current jobs plus the predicted throughput of the new job.
+	The predicted throughput is a moving average of each seen throughput point.
+
+C. Network throughput
+	Network throughput is similarly calculated like IO throughput
+
+The idea behind IO and Network throughput is that we want to load balance IO heavy and network heavy jobs.	
