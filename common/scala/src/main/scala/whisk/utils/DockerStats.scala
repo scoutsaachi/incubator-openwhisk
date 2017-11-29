@@ -97,15 +97,17 @@ object DockerStats {
     }
 
     // Get all docker profiles of running containers
-    def getAllStats() : Map[String, DockerProfile] = {
+    def getAllStats()(implicit ec: ExecutionContext) : Map[String, DockerProfile] = {
 	val dockerIds : String = "docker ps -q  --filter name=wsk" !!
         val dockerNamesTimes : String = s"sudo docker inspect -f {{.Name}},{{.State.StartedAt}} $dockerIds" !!
         val dockerNamesTimesSeq = dockerNamesTimes.split("\n").toList.map(_.split(",").toList)
-        (for(dockerNameTime <- dockerNamesTimesSeq) yield {
+        val futureList = (for(dockerNameTime <- dockerNamesTimesSeq) yield Future{
             val dockerName = dockerNameTime(0).substring(1)
             val dockerTime = OffsetDateTime.parse(dockerNameTime(1))
-            var prof = getExactContainerStat(dockerName, Option(dockerTime))
-            dockerName -> prof
-        }).toMap.collect{ case (key, Some(value)) => (key, value) }
+            var prof = getExactContainerStat(dockerName, Option(dockerTime)) // Option[DockerProfile]
+        }).toList
+        val futureSeq = Future.sequence(futureList)
+        val collectedProfiles = Await.ready(f, Duration.Inf).value.get // List of Option[DockerProfile]
+        collectedProfiles.flatten.map(_.name -> _).toMap
     }
 }
