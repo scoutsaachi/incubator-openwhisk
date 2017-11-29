@@ -8,7 +8,7 @@ if len(sys.argv) > 1:
     print ("going to sleep for %d seconds per request" % timeToSleep)
 
 PORT = 1234
-IPADDR = "10.0.0.4"
+IPADDR = "0.0.0.0"
 
 class testServer(BaseHTTPRequestHandler):
  

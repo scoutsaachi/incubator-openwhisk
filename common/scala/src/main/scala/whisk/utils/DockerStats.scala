@@ -4,6 +4,8 @@ import spray.json._
 import java.time.OffsetDateTime
 import sys.process._
 import scala.language.postfixOps
+import java.time.Duration
+import scala.util.{Try, Success, Failure}
 
 case class DockerProfile(name: String, readTime: OffsetDateTime, cpuPerc: BigDecimal,
                          totalIo: BigDecimal, networkUsage: BigDecimal,
@@ -16,7 +18,7 @@ case class DockerInterval(name: String, cpuPerc: BigDecimal, ioThroughput: BigDe
 
 object DockerStats {
 
-    def computeNewDockerSummary(oldMap: Map[String, DockerProfile], newMap: Map[String, DockerProfile]) : Map[String, DockerInterval] {
+    def computeNewDockerSummary(oldMap: Map[String, DockerProfile], newMap: Map[String, DockerProfile]) : Map[String, DockerInterval] = {
         (for ((name, newProf) <- newMap) yield {
             val interval = oldMap.get(name) match {
                 case Some(oldProf) => {
@@ -31,7 +33,7 @@ object DockerStats {
     }
 
     // create an interval with respect to a starting point
-    def createDockerInterval(prof: DockerProfile, oldP: DockerProfile) : DockerInterval {
+    def createDockerInterval(prof: DockerProfile, oldP: DockerProfile) : DockerInterval = {
         val time_interval = Duration.between(oldP.readTime, prof.readTime).toMillis()
         val cpu_perc = prof.cpuPerc
         val io_thrpt : BigDecimal = (prof.totalIo - oldP.totalIo)/time_interval
@@ -40,9 +42,9 @@ object DockerStats {
     }
 
     // creating an interval when no prior start point exists
-    def createStartingInterval(prof: DockerProfile) : DockerInterval {
+    def createStartingInterval(prof: DockerProfile) : DockerInterval = {
         val create_time = prof.containerCreated.getOrElse(prof.readTime.minusSeconds(1))
-        val time_interval = Duration.between(create_time, prof.readTime).toMilis()
+        val time_interval = Duration.between(create_time, prof.readTime).toMillis()
         val cpu_perc = prof.cpuPerc
         val io_thrpt : BigDecimal = prof.totalIo/time_interval
         val network_thrpt : BigDecimal = prof.networkUsage/time_interval
@@ -53,13 +55,13 @@ object DockerStats {
     // key for the final value
     def getNestedJSValue(keys: List[String], finalKey: String, obj: Option[JsObject]) : Option[JsValue] = {
        var curr_obj = obj
-       keys.foreach (k => curr_obj = curr_obj.map(_.fields.getOrElse(k, None)).map(_.asInstanceOf[JsObject]))
-       val result = curr_obj.map(_.fields.getOrElse(finalKey, None)).map(_.asInstanceOf[JsValue])
+       keys.foreach (k => curr_obj = curr_obj.flatMap(_.fields.get(k)).map(_.asInstanceOf[JsObject]))
+       val result = curr_obj.flatMap(_.fields.get(finalKey)).map(_.asInstanceOf[JsValue])
        result
     }
 
     // Given a docker response corresponding to a name create the docker profile
-    def extractMetricsFromResp(name: String, resp: String) : DockerProfile {
+    def extractMetricsFromResp(name: String, resp: String, containerCreated: Option[OffsetDateTime]): DockerProfile = {
        val jsonObject = Option(resp.parseJson).map(_.asInstanceOf[JsObject])
        val readVal = getNestedJSValue(List(), "read", jsonObject).map(_.asInstanceOf[JsString].value)
        val readTime = readVal.map(OffsetDateTime.parse(_)).getOrElse(OffsetDateTime.now())
@@ -74,7 +76,7 @@ object DockerStats {
  
        // io
        val io_stats = getNestedJSValue(List("blkio_stats"), "io_service_bytes_recursive", jsonObject).map(_.asInstanceOf[JsArray])
-       val totalIoDict = io_stats.map(_.elements.lastOption.getOrElse(None)).map(_.asInstanceOf[JsObject])
+       val totalIoDict = io_stats.flatMap(_.elements.lastOption).map(_.asInstanceOf[JsObject])
        val totalIo = getNestedJSValue(List(), "value", totalIoDict).map(_.asInstanceOf[JsNumber]).getOrElse(JsNumber(0)).value
        //network
        val network_dict = getNestedJSValue(List(), "networks", jsonObject).getOrElse(new JsObject(Map())).asInstanceOf[JsObject] // JsObject
@@ -82,27 +84,27 @@ object DockerStats {
             .map(_.asInstanceOf[JsObject])
             .map(x => getNestedJSValue(List(), "rx_bytes", Option(x)).map(_.asInstanceOf[JsNumber]).getOrElse(JsNumber(0))).map(_.value))
        val networkBytes = network_byte_values.sum
-       DockerProfile(name, readTime, cpu_perc, totalIo, networkBytes, None)
+       DockerProfile(name, readTime, cpu_perc, totalIo, networkBytes, containerCreated)
     }
 
     // Get the docker profile corresponding to a name
-    def getExactContainerStat(name: String) : Option[DockerProfile] = {
+    def getExactContainerStat(name: String, containerCreated: Option[OffsetDateTime]) : Option[DockerProfile] = {
        val respTry = Try(scala.io.Source.fromURL(s"http://0.0.0.0:4243/containers/$name/stats?stream=false").mkString)
        respTry match {
-          case Success(resp) => extractMetricsFromResp(name, resp)
+          case Success(resp) => Option(extractMetricsFromResp(name, resp, containerCreated))
           case Failure(e) => None
        }
     }
 
     // Get all docker profiles of running containers
     def getAllStats() : Map[String, DockerProfile] = {
-        val dockerNamesTimes : String = "sudo docker ps --format {{.Names}},{{.CreatedAt}} --filter name=wsk" !!
-        val dockerNameTimesSeq = dockerNames.split("\n").toList.map(_.split("\n").toList)
-        (for(dockerNameTime <- dockerNameTimeSeq) yield {
-            val dockerName = dockerNameTime(0)
+	val dockerIds : String = "docker ps -q  --filter name=wsk" !!
+        val dockerNamesTimes : String = s"sudo docker inspect -f {{.Name}},{{.State.StartedAt}} $dockerIds" !!
+        val dockerNamesTimesSeq = dockerNamesTimes.split("\n").toList.map(_.split(",").toList)
+        (for(dockerNameTime <- dockerNamesTimesSeq) yield {
+            val dockerName = dockerNameTime(0).substring(1)
             val dockerTime = OffsetDateTime.parse(dockerNameTime(1))
-            var prof = getExactContainerStat(dockerName)
-            prof.containerCreated = Option(dockerTime)
+            var prof = getExactContainerStat(dockerName, Option(dockerTime))
             dockerName -> prof
         }).toMap.collect{ case (key, Some(value)) => (key, value) }
     }
