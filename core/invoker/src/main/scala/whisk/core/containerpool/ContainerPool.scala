@@ -18,11 +18,13 @@
 package whisk.core.containerpool
 
 import scala.collection.immutable
+import scala.concurrent.duration._
 
 import akka.actor.Actor
 import akka.actor.ActorRef
 import akka.actor.ActorRefFactory
 import akka.actor.Props
+import akka.actor.Timers
 import whisk.common.AkkaLogging
 
 import whisk.core.entity.ByteSize
@@ -64,7 +66,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
                     maxPoolSize: Int,
                     feed: ActorRef,
                     prewarmConfig: Option[PrewarmingConfig] = None)
-    extends Actor {
+    extends Actor with Timers {
   implicit val logging = new AkkaLogging(context.system.log)
 
   var freePool = immutable.Map.empty[ActorRef, ContainerData]
@@ -78,8 +80,15 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
     }
   }
 
+  private case object TickKey
+  private case object Tick
+
+  timers.startPeriodicTimer(TickKey, Tick, 1.second)
+
   def receive: Receive = {
     // A job to run on a container
+    case Tick =>
+      logging.info(this, "Tick.")
     case r: Run =>
       val container = if (busyPool.size < maxActiveContainers) {
         // Schedule a job to a warm container
