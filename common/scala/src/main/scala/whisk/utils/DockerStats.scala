@@ -103,21 +103,24 @@ object DockerStats {
     }
 
     // Get all docker profiles of running containers
-    def getAllStats()(implicit ec: ExecutionContext) : Map[String, DockerProfile] = {
-	val dockerIds : String = "docker ps -q  --filter name=wsk" !!
-        val dockerNamesTimes : String = s"sudo docker inspect -f {{.Name}},{{.State.StartedAt}} $dockerIds" !!
-        val dockerNamesTimesSeq = dockerNamesTimes.split("\n").toList.map(_.split(",").toList)
-        val futureList = (for(dockerNameTime <- dockerNamesTimesSeq) yield Future{
-            val dockerName = dockerNameTime(0).substring(1)
-            val dockerTime = OffsetDateTime.parse(dockerNameTime(1))
-            getExactContainerStat(dockerName, Option(dockerTime)) // Option[DockerProfile]
-        }).toList
-        val futureSeq = Future.sequence(futureList)
-        //futureSeq onComplete {
-        //    case Success(results) => results.flatten.map(p => p.name -> p).toMap
-        //    case Failure(t) => new Map[String, DockerProfile]() // todo, put some logging here
-        //}
-        val collectedProfiles = Await.result(futureSeq, SDuration.Inf) // List of Option[DockerProfile]
-        collectedProfiles.flatten.map(p => p.name -> p).toMap
+    def getAllStats()(implicit ec: ExecutionContext) : Option[Map[String, DockerProfile]] = {
+        val dockerIds : String = "docker ps -q  --filter name=wsk" !!
+
+        if (!dockerIds.isEmpty()) {
+            val dockerNamesTimes : String = s"sudo docker inspect -f {{.Name}},{{.State.StartedAt}} $dockerIds" !!
+            val dockerNamesTimesSeq = dockerNamesTimes.split("\n").toList.map(_.split(",").toList)
+            val futureList = (for(dockerNameTime <- dockerNamesTimesSeq) yield Future{
+                val dockerName = dockerNameTime(0).substring(1)
+                val dockerTime = OffsetDateTime.parse(dockerNameTime(1))
+                getExactContainerStat(dockerName, Option(dockerTime)) // Option[DockerProfile]
+            }).toList
+            val futureSeq = Future.sequence(futureList)
+            //futureSeq onComplete {
+            //    case Success(results) => results.flatten.map(p => p.name -> p).toMap
+            //    case Failure(t) => new Map[String, DockerProfile]() // todo, put some logging here
+            //}
+            val collectedProfiles = Await.result(futureSeq, SDuration.Inf) // List of Option[DockerProfile]
+            Some(collectedProfiles.flatten.map(p => p.name -> p).toMap) 
+        } else None
     }
 }
