@@ -92,12 +92,12 @@ class InvokerPool(childFactory: (ActorRefFactory, InstanceId) => ActorRef,
     case p: PingMessage =>
       val invoker = instanceToRef.getOrElse(p.instance, registerInvoker(p.instance))
       instanceToRef = instanceToRef.updated(p.instance, invoker)
-      logging.info(this, "received invoker ping.")
+      p.profile match {
+        case Some(_) => logging.info(this, "received invoker ping.")
+        case None => logging.info(this, "received invoker profile.")
+      }
 
       invoker.forward(p)
-
-    case p: ProfileMessage =>
-      logging.info(this, "received invoker profile.") 
 
     case GetStatus => sender() ! status
 

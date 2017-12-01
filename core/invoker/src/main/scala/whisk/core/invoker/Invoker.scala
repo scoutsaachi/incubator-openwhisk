@@ -197,7 +197,7 @@ object Invoker {
     })
 
     Scheduler.scheduleWaitAtMost(10.seconds)(() => {
-      producer.send("health", ProfileMessage(invokerInstance)).andThen {
+      producer.send("health", PingMessage(invokerInstance, Some("profile"))).andThen {
         case Failure(t) => logger.error(this, s"failed to ping the controller: $t")
       }
     })
