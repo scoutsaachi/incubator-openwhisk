@@ -19,6 +19,7 @@ package whisk.core.containerpool
 
 import scala.collection.immutable
 import scala.concurrent.duration._
+import scala.concurrent._
 
 import akka.actor.Actor
 import akka.actor.ActorRef
@@ -26,6 +27,8 @@ import akka.actor.ActorRefFactory
 import akka.actor.Props
 import akka.actor.Timers
 import whisk.common.AkkaLogging
+import whisk.utils.DockerProfile
+import whisk.utils.DockerStats
 
 import whisk.core.entity.ByteSize
 import whisk.core.entity.CodeExec
@@ -67,11 +70,14 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
                     feed: ActorRef,
                     prewarmConfig: Option[PrewarmingConfig] = None)
     extends Actor with Timers {
+  import ExecutionContext.Implicits.global
   implicit val logging = new AkkaLogging(context.system.log)
 
   var freePool = immutable.Map.empty[ActorRef, ContainerData]
   var busyPool = immutable.Map.empty[ActorRef, ContainerData]
   var prewarmedPool = immutable.Map.empty[ActorRef, ContainerData]
+  var profile = Array(immutable.Map.empty[String, DockerProfile], immutable.Map.empty[String, DockerProfile])
+  var turn: Int = 0
 
   prewarmConfig.foreach { config =>
     logging.info(this, s"pre-warming ${config.count} ${config.exec.kind} containers")
@@ -80,15 +86,15 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
     }
   }
 
-  private case object TickKey
-  private case object Tick
-
-  timers.startPeriodicTimer(TickKey, Tick, 1.second)
+  import ContainerPool.{TickKey, Tick}
+  timers.startPeriodicTimer(TickKey, Tick, 10.second)
 
   def receive: Receive = {
     // A job to run on a container
     case Tick =>
       logging.info(this, "Tick.")
+      profile(turn) = DockerStats.getAllStats().getOrElse(profile(turn))
+      turn = 1 - turn
     case r: Run =>
       val container = if (busyPool.size < maxActiveContainers) {
         // Schedule a job to a warm container
@@ -247,6 +253,9 @@ object ContainerPool {
             feed: ActorRef,
             prewarmConfig: Option[PrewarmingConfig] = None) =
     Props(new ContainerPool(factory, maxActive, size, feed, prewarmConfig))
+
+  private case object TickKey
+  private case object Tick
 }
 
 /** Contains settings needed to perform container prewarming */
