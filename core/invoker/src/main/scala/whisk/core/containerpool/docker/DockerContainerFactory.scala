@@ -43,6 +43,16 @@ class DockerContainerFactory(config: WhiskConfig, instance: InstanceId, paramete
   implicit val docker = new DockerClientWithFileAccess()(ec)
   implicit val runc = new RuncClient(ec)
 
+  /* Provide access to docker ps */
+  def getActionContainerIDs() : Future[Seq[ContainerId]] = {
+    docker.ps(filters = Seq("name" -> s"wsk${instance.toInt}_"))
+  }
+
+  /* Provide access to getNameContainerStartTime */
+  def getNameContainerStartTime(id: ContainerId): Future[(String, OffsetDateTime)] ={
+    docker.getNameContainerStartTime(id)
+  }
+
   /** Create a container using docker cli */
   override def createContainer(tid: TransactionId,
                                name: String,

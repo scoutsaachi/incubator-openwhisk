@@ -102,6 +102,46 @@ class DockerClientWithFileAccess(
     }
   }
 
+  /** 
+   * Extract the container start time from the given container id
+   * Does not error check, so should pair with recover
+   *
+   * @param id the container id to get the value from
+   * @return (name, the start time of the container as an OffsetDateTime)
+  */
+  protected def getNameContainerStartTimeFromFile(id: ContainerId): Future[(String, OffsetDateTime)] = {
+    configFileContents(containerConfigFile(id))
+      .map(
+        (_.fields("Name").convertTo[String].substring(1),
+        OffsetDateTime.parse(_.fields("State").asJsObject.fields("StartedAt").convertTo[String])))
+  }
+
+  /**
+   * Extract the start time using the docker inspect method
+   *
+   * @param id the container id
+   * @return the started time as an OffsetDateTime 
+   */
+  protected def getNameContainerStartTimeFromInspect(id: ContainerId): Future[(String, OffsetDateTime)] = {
+    runCmd("inspect", "--format", s"{{.Name}},{{.State.StartedAt}}", id.asString).flatMap {
+      _ match {
+        case "<no value>,<no value>" => Future.failed(new NoSuchElementException)
+        case v       => {
+          val result = v.split(",").toList
+          val name = result(0).substring(1)
+          val t = OffsetDateTime.parse(result(1))
+          Future.successful((name, t))
+        }
+      }
+    }
+  }
+
+  def getNameContainerStartTime(id: ContainerId): Future[(String, OffsetDateTime)OffsetDateTime] = {
+    getNameContainerStartTimeFromFile(id).recoverWith {
+      case _ => super.getNameContainerStartTimeFromInspect(id)
+    }
+  }
+
   /**
    * Extracts the IP of the container from the local config file of the docker daemon.
    *
@@ -193,4 +233,14 @@ trait DockerApiWithFileAccess extends DockerApi {
    * @return a ByteBuffer holding the read log file contents
    */
   def rawContainerLogs(containerId: ContainerId, fromPos: Long): Future[ByteBuffer]
+
+  /**
+   * Extracts the container start time given a container id. First
+   * tries to find from the config file, and then defaults to running
+   * docker inspect
+   * 
+   * @param id the container id
+   * @return Future[name, the started time as an OffsetDateTime]
+   */
+  def getNameContainerStartTime(id: ContainerId): Future[(String, OffsetDateTime)]
 }

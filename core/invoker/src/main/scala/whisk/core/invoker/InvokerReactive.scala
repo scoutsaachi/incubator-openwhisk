@@ -160,6 +160,25 @@ class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: Messa
       activationFeed,
       Some(PrewarmingConfig(2, prewarmExec, 256.MB))))
 
+  def getAllStats(hostIPAddr:String) : Future[Map[String, DockerProfile]] = {
+    containerFactory.getActionContainerIDs()
+      .flatMap( idSeq => { //idSeq is Seq[ContainerId]
+        val listFutureMappings = idSeq.map(cId => { //cId is a ContainerId
+          containerFactory.getNameContainerStartTime(cId) // Future[String, OffsetDateTime]
+            .flatMap(nameTime => { //nameTime is a String, OffsetDateTime
+              val prof = DockerStats.getExactContainerStat(nameTime(0), hostIPAddr, nameTime(1)) // Future[DockerProfile]
+              nameTime(0) -> prof // String -> Future[DockerProfile]
+            }) // Future[String -> Future[DockerProfile]]
+        }) // List[Future[String -> Future[DockerProfile]]]
+        Future.sequence(listFutureMappings) // Future[List[String->Future[DockerProfile]]]
+          .flatMap( l => { // List[String->Future[DockerProfile]]
+            val mapOfFutures = l.toMap // Map[String->Future[DockerProfile]]
+            Future.sequence(map.map(entry => entry._2.map(i => (entry._1, i)))).map(_.toMap)
+          }) // Future[Map[String->DockerProfile]]
+      }) // Future[Future[Map[String->DockerProfile]]]
+        .flatMap(identity)
+  }
+
   /** Is called when an ActivationMessage is read from Kafka */
   def processActivationMessage(bytes: Array[Byte]): Future[Unit] = {
     Future(ActivationMessage.parse(new String(bytes, StandardCharsets.UTF_8)))
