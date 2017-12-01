@@ -30,6 +30,8 @@ import whisk.common.AkkaLogging
 import whisk.utils.DockerProfile
 import whisk.utils.DockerStats
 
+import whisk.core.connector.MessagingProvider
+import whisk.core.connector.ProfileMessage
 import whisk.core.entity.ByteSize
 import whisk.core.entity.CodeExec
 import whisk.core.entity.EntityName

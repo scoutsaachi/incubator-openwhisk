@@ -155,9 +155,11 @@ class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: Messa
   val pool = actorSystem.actorOf(
     ContainerPool.props(
       childFactory,
+      instance,
       maximumContainers,
       maximumContainers,
       activationFeed,
+      provider,
       Some(PrewarmingConfig(2, prewarmExec, 256.MB))))
 
   /** Is called when an ActivationMessage is read from Kafka */
