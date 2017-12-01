@@ -159,7 +159,7 @@ class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: Messa
       maximumContainers,
       maximumContainers,
       activationFeed,
-      provider,
+      producer,
       Some(PrewarmingConfig(2, prewarmExec, 256.MB))))
 
   /** Is called when an ActivationMessage is read from Kafka */

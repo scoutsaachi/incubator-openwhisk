@@ -39,6 +39,7 @@ import whisk.core.WhiskConfig
 import whisk.core.WhiskConfig._
 import whisk.core.connector.MessagingProvider
 import whisk.core.connector.PingMessage
+import whisk.core.connector.ProfileMessage
 import whisk.core.entity.ExecManifest
 import whisk.core.entity.InstanceId
 import whisk.core.entity.WhiskActivationStore
@@ -194,6 +195,13 @@ object Invoker {
         case Failure(t) => logger.error(this, s"failed to ping the controller: $t")
       }
     })
+
+    Scheduler.scheduleWaitAtMost(10.seconds)(() => {
+      producer.send("health", ProfileMessage(invokerInstance)).andThen {
+        case Failure(t) => logger.error(this, s"failed to ping the controller: $t")
+      }
+    })
+
     //val dockerTest = DockerStats.getIds()
     val port = config.servicePort.toInt
     BasicHttpService.startService(new InvokerServer().route, port)(actorSystem, ActorMaterializer.create(actorSystem))

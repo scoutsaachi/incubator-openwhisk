@@ -104,7 +104,8 @@ object DockerStats {
 
     // Get all docker profiles of running containers
     def getAllStats()(implicit ec: ExecutionContext) : Option[Map[String, DockerProfile]] = {
-        val dockerIds : String = "docker ps -q  --filter name=wsk" !!
+        // val dockerIds : String = "docker ps -q  --filter name=wsk" !!
+        val dockerIds : String = "" 
 
         if (!dockerIds.isEmpty()) {
             val dockerNamesTimes : String = s"sudo docker inspect -f {{.Name}},{{.State.StartedAt}} $dockerIds" !!

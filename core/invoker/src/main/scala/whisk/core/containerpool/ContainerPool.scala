@@ -20,6 +20,7 @@ package whisk.core.containerpool
 import scala.collection.immutable
 import scala.concurrent.duration._
 import scala.concurrent._
+import scala.util.Failure
 
 import akka.actor.Actor
 import akka.actor.ActorRef
@@ -30,7 +31,7 @@ import whisk.common.AkkaLogging
 import whisk.utils.DockerProfile
 import whisk.utils.DockerStats
 
-import whisk.core.connector.MessagingProvider
+import whisk.core.connector.MessageProducer
 import whisk.core.connector.ProfileMessage
 import whisk.core.entity.ByteSize
 import whisk.core.entity.CodeExec
@@ -98,7 +99,8 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
     // A job to run on a container
     case Tick =>
       producer.send("health", ProfileMessage(invokerInstance)).andThen {
-        case Failure(t) => logger.error(this, "failed to send profile")
+        case Failure(t) => logging.error(this, "failed to send profile")
+        case _ => logging.info(this, "sent profile.")
       }
       logging.info(this, "Tick.")
       profile(turn) = DockerStats.getAllStats().getOrElse(profile(turn))
@@ -256,11 +258,13 @@ object ContainerPool {
   }
 
   def props(factory: ActorRefFactory => ActorRef,
+            instance: InstanceId,
             maxActive: Int,
             size: Int,
             feed: ActorRef,
+            producer: MessageProducer,
             prewarmConfig: Option[PrewarmingConfig] = None) =
-    Props(new ContainerPool(factory, maxActive, size, feed, prewarmConfig))
+    Props(new ContainerPool(factory, instance, maxActive, size, feed, producer, prewarmConfig))
 
   private case object TickKey
   private case object Tick
