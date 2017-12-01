@@ -18,6 +18,10 @@ case class DockerProfile(name: String, readTime: OffsetDateTime, cpuPerc: BigDec
 case class DockerInterval(name: String, cpuPerc: BigDecimal, ioThroughput: BigDecimal,
                           networkThroughput: BigDecimal)
 
+object DocerkInterval extends DefaultJsonProtocol {
+    implicit val serdes = jsonFormat4(DockerInterval.apply)
+}
+
 object DockerStats {
 
     def computeNewDockerSummary(oldMap: Map[String, DockerProfile], newMap: Map[String, DockerProfile]) : Map[String, DockerInterval] = {

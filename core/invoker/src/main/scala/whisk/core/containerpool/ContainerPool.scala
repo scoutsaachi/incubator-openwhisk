@@ -31,6 +31,7 @@ import whisk.core.entity.ByteSize
 import whisk.core.entity.CodeExec
 import whisk.core.entity.EntityName
 import whisk.core.entity.ExecutableWhiskAction
+import whisk.core.entity.InstanceId
 import whisk.core.entity.size._
 import whisk.core.connector.MessageFeed
 
@@ -62,9 +63,11 @@ case class WorkerData(data: ContainerData, state: WorkerState)
  * @param prewarmConfig optional settings for container prewarming
  */
 class ContainerPool(childFactory: ActorRefFactory => ActorRef,
+                    invokerInstance: InstanceId,
                     maxActiveContainers: Int,
                     maxPoolSize: Int,
                     feed: ActorRef,
+                    producer: MessageProducer,
                     prewarmConfig: Option[PrewarmingConfig] = None)
     extends Actor with Timers {
   implicit val logging = new AkkaLogging(context.system.log)
@@ -88,6 +91,9 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
   def receive: Receive = {
     // A job to run on a container
     case Tick =>
+      producer.send("health", ProfileMessage(invokerInstance)).andThen {
+        case Failure(t) => logger.error(this, "failed to send profile")
+      }
       logging.info(this, "Tick.")
     case r: Run =>
       val container = if (busyPool.size < maxActiveContainers) {
