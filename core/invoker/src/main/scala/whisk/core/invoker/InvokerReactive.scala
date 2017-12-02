@@ -24,7 +24,8 @@ import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.Failure
 import scala.util.Success
-
+import whisk.utils.DockerStats
+import whisk.utils.DockerProfile
 import org.apache.kafka.common.errors.RecordTooLargeException
 
 import akka.actor.ActorRefFactory
@@ -163,20 +164,21 @@ class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: Messa
   def getAllStats(hostIPAddr:String) : Future[Map[String, DockerProfile]] = {
     containerFactory.getActionContainerIDs()
       .flatMap( idSeq => { //idSeq is Seq[ContainerId]
-        val listFutureMappings = idSeq.map(cId => { //cId is a ContainerId
+        val listFutureMappings : List[Future[(String, DockerProfile)]] = idSeq.map(cId => { //cId is a ContainerId
           containerFactory.getNameContainerStartTime(cId) // Future[String, OffsetDateTime]
             .flatMap(nameTime => { //nameTime is a String, OffsetDateTime
-              val prof = DockerStats.getExactContainerStat(nameTime(0), hostIPAddr, nameTime(1)) // Future[DockerProfile]
-              nameTime(0) -> prof // String -> Future[DockerProfile]
-            }) // Future[String -> Future[DockerProfile]]
-        }) // List[Future[String -> Future[DockerProfile]]]
-        Future.sequence(listFutureMappings) // Future[List[String->Future[DockerProfile]]]
-          .flatMap( l => { // List[String->Future[DockerProfile]]
-            val mapOfFutures = l.toMap // Map[String->Future[DockerProfile]]
-            Future.sequence(map.map(entry => entry._2.map(i => (entry._1, i)))).map(_.toMap)
+              val prof = DockerStats.getExactContainerStat(nameTime._1, hostIPAddr, Option(nameTime._2)) // Future[DockerProfile]
+	      prof.flatMap(dp => Future(nameTime._1, dp)) // Future[String, DockerProfile]
+            }) // Future[String. Future[DockerProfile]]
+        }).toList // Seq[Future[String , DockerProfile]]
+
+        Future.sequence(listFutureMappings) // Future[List[String,DockerProfile]]
+          .flatMap( l => { // List[String, DockerProfile]
+            val m = l.toMap // Map[String->DockerProfile]
+	    Future(m)
+            //Future.sequence(map.map(entry => entry._2.map(i => (entry._1, i)))).map(_.toMap)
           }) // Future[Map[String->DockerProfile]]
       }) // Future[Future[Map[String->DockerProfile]]]
-        .flatMap(identity)
   }
 
   /** Is called when an ActivationMessage is read from Kafka */

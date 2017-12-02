@@ -17,6 +17,7 @@
 
 package whisk.core.containerpool.docker
 
+import java.time.OffsetDateTime
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
@@ -111,9 +112,10 @@ class DockerClientWithFileAccess(
   */
   protected def getNameContainerStartTimeFromFile(id: ContainerId): Future[(String, OffsetDateTime)] = {
     configFileContents(containerConfigFile(id))
-      .map(
-        (_.fields("Name").convertTo[String].substring(1),
-        OffsetDateTime.parse(_.fields("State").asJsObject.fields("StartedAt").convertTo[String])))
+      .map {json : JsObject  =>
+        val name = json.fields("Name").convertTo[String].substring(1)
+	val t = OffsetDateTime.parse(json.fields("State").asJsObject.fields("StartedAt").convertTo[String])
+	(name, t)}
   }
 
   /**
@@ -122,7 +124,8 @@ class DockerClientWithFileAccess(
    * @param id the container id
    * @return the started time as an OffsetDateTime 
    */
-  protected def getNameContainerStartTimeFromInspect(id: ContainerId): Future[(String, OffsetDateTime)] = {
+  protected def getNameContainerStartTimeFromInspect(id: ContainerId)(implicit transid: TransactionId): Future[(String, OffsetDateTime)] = {
+
     runCmd("inspect", "--format", s"{{.Name}},{{.State.StartedAt}}", id.asString).flatMap {
       _ match {
         case "<no value>,<no value>" => Future.failed(new NoSuchElementException)
@@ -136,9 +139,9 @@ class DockerClientWithFileAccess(
     }
   }
 
-  def getNameContainerStartTime(id: ContainerId): Future[(String, OffsetDateTime)OffsetDateTime] = {
+  def getNameContainerStartTime(id: ContainerId)(implicit transid: TransactionId): Future[(String, OffsetDateTime)] = {
     getNameContainerStartTimeFromFile(id).recoverWith {
-      case _ => super.getNameContainerStartTimeFromInspect(id)
+      case _ => getNameContainerStartTimeFromInspect(id)
     }
   }
 
@@ -242,5 +245,5 @@ trait DockerApiWithFileAccess extends DockerApi {
    * @param id the container id
    * @return Future[name, the started time as an OffsetDateTime]
    */
-  def getNameContainerStartTime(id: ContainerId): Future[(String, OffsetDateTime)]
+  def getNameContainerStartTime(id: ContainerId)(implicit transid: TransactionId): Future[(String, OffsetDateTime)]
 }

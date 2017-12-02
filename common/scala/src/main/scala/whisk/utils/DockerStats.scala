@@ -2,12 +2,9 @@ package whisk.utils
 
 import spray.json._
 import java.time.OffsetDateTime
-import sys.process._
-import scala.language.postfixOps
 import java.time.Duration
 import scala.util.{Try, Success, Failure}
-import scala.concurrent.{Future, ExecutionContext, Await}
-import scala.concurrent.duration.{Duration => SDuration}
+import scala.concurrent.{Future}
 
 /**
  * DockerProfile represents the profile of a single container at a single point in time
@@ -21,15 +18,9 @@ import scala.concurrent.duration.{Duration => SDuration}
  *  networkUsage: cummulative bytes sent or recvd through the network
  *  containerCreated: container creation time. Must not be None if used for aggregate invoker usage
  */
-case class DockerProfile(
-    name: String, 
-    readTime: OffsetDateTime, 
-    cpuPerc: BigDecimal,
-    activationCPU: BigDecimal,
-    systemCPU: BigDecimal,
-    totalIo: BigDecimal,
-    networkUsage: BigDecimal,
-    containerCreated: Option[OffsetDateTime])
+case class DockerProfile(name: String, readTime: OffsetDateTime, cpuPerc: BigDecimal,
+                         activationCPU: BigDecimal, systemCPU: BigDecimal, totalIo: BigDecimal,
+                         networkUsage: BigDecimal, containerCreated: Option[OffsetDateTime])
 
 /**
  * DockerInterval represents the behavior of a job over time. This is computed
@@ -47,11 +38,7 @@ case class DockerProfile(
  *  ioThroughput: bytes/ms written or read
  *  networkThroughput: bytes/ms sent or recv'd over the network
  */
-case class DockerInterval(
-    name: String,
-    cpuPerc: BigDecimal,
-    ioThroughput: BigDecimal,
-    networkThroughput: BigDecimal)
+case class DockerInterval(name: String, cpuPerc: BigDecimal, ioThroughput: BigDecimal, networkThroughput: BigDecimal)
 
 object DockerStats {
 
