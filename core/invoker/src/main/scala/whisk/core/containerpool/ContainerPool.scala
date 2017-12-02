@@ -31,6 +31,8 @@ import whisk.core.entity.EntityName
 import whisk.core.entity.ExecutableWhiskAction
 import whisk.core.entity.size._
 import whisk.core.connector.MessageFeed
+import scala.concurrent.Future
+import whisk.utils.DockerProfile 
 
 sealed trait WorkerState
 case object Busy extends WorkerState
