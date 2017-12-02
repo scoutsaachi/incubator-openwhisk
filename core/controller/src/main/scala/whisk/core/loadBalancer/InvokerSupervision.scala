@@ -95,7 +95,9 @@ class InvokerPool(childFactory: (ActorRefFactory, InstanceId) => ActorRef,
       p.profile match {
         case Some(prof) => 
           logging.info(this, s"received invoker $prof ")
-        case None => logging.info(this, "received invoker ping")
+          invoker.forward(prof)
+        case None => 
+          logging.info(this, "received invoker ping")
       }
 
       invoker.forward(p)
@@ -207,6 +209,7 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
   implicit val transid = TransactionId.invokerHealth
   implicit val logging = new AkkaLogging(context.system.log)
   val name = s"invoker${invokerInstance.toInt}"
+  var profile: String = ""
 
   val healthyTimeout = 10.seconds
 
@@ -257,6 +260,7 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
    */
   whenUnhandled {
     case Event(cm: InvocationFinishedMessage, info) => handleCompletionMessage(cm.successful, info.buffer)
+    case Event(p: String) => logging.info(this, s"profile changed to $p")
   }
 
   /** Logging on Transition change */
