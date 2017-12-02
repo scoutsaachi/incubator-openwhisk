@@ -59,7 +59,8 @@ case class WorkerData(data: ContainerData, state: WorkerState)
  * @param feed actor to request more work from
  * @param prewarmConfig optional settings for container prewarming
  */
-class ContainerPool(childFactory: ActorRefFactory => ActorRef,
+class ContainerPool(getStatsFn : () => Future[Map[String, DockerProfile]],
+                    childFactory: ActorRefFactory => ActorRef,
                     maxActiveContainers: Int,
                     maxPoolSize: Int,
                     feed: ActorRef,
@@ -232,7 +233,8 @@ object ContainerPool {
     } else None
   }
 
-  def props(factory: ActorRefFactory => ActorRef,
+  def props(getStatsFn : () => Future[Map[String, DockerProfile]],
+            factory: ActorRefFactory => ActorRef,
             maxActive: Int,
             size: Int,
             feed: ActorRef,

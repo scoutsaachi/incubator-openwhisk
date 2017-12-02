@@ -63,6 +63,9 @@ class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: Messa
   implicit val ec = actorSystem.dispatcher
   implicit val cfg = config
 
+  // todo put this in the config
+  private val hostIP = "10.0.0.7" // TODO change this
+
   private val logsProvider = SpiLoader.get[LogStoreProvider].logStore(actorSystem)
 
   /**
@@ -153,33 +156,34 @@ class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: Messa
     }
     .get
 
-  val pool = actorSystem.actorOf(
-    ContainerPool.props(
-      childFactory,
-      maximumContainers,
-      maximumContainers,
-      activationFeed,
-      Some(PrewarmingConfig(2, prewarmExec, 256.MB))))
-
-  def getAllStats(hostIPAddr:String) : Future[Map[String, DockerProfile]] = {
+  def getAllStats() : Future[Map[String, DockerProfile]] = {
     containerFactory.getActionContainerIDs()
       .flatMap( idSeq => { //idSeq is Seq[ContainerId]
         val listFutureMappings : List[Future[(String, DockerProfile)]] = idSeq.map(cId => { //cId is a ContainerId
           containerFactory.getNameContainerStartTime(cId) // Future[String, OffsetDateTime]
             .flatMap(nameTime => { //nameTime is a String, OffsetDateTime
-              val prof = DockerStats.getExactContainerStat(nameTime._1, hostIPAddr, Option(nameTime._2)) // Future[DockerProfile]
-	      prof.flatMap(dp => Future(nameTime._1, dp)) // Future[String, DockerProfile]
+              val prof = DockerStats.getExactContainerStat(nameTime._1, hostIP, Option(nameTime._2)) // Future[DockerProfile]
+	            prof.flatMap(dp => Future(nameTime._1, dp)) // Future[String, DockerProfile]
             }) // Future[String. Future[DockerProfile]]
         }).toList // Seq[Future[String , DockerProfile]]
 
         Future.sequence(listFutureMappings) // Future[List[String,DockerProfile]]
           .flatMap( l => { // List[String, DockerProfile]
             val m = l.toMap // Map[String->DockerProfile]
-	    Future(m)
+	          Future(m)
             //Future.sequence(map.map(entry => entry._2.map(i => (entry._1, i)))).map(_.toMap)
           }) // Future[Map[String->DockerProfile]]
-      }) // Future[Future[Map[String->DockerProfile]]]
+      }) //Future[Map[String->DockerProfile]]]
   }
+
+  val pool = actorSystem.actorOf(
+    ContainerPool.props(
+      getAllStats
+      childFactory,
+      maximumContainers,
+      maximumContainers,
+      activationFeed,
+      Some(PrewarmingConfig(2, prewarmExec, 256.MB))))
 
   /** Is called when an ActivationMessage is read from Kafka */
   def processActivationMessage(bytes: Array[Byte]): Future[Unit] = {
