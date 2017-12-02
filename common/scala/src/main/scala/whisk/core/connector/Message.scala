@@ -118,7 +118,7 @@ case class PingMessage(instance: InstanceId, profile: Option[String] = None) ext
 
 object PingMessage extends DefaultJsonProtocol {
   def parse(msg: String) = Try(serdes.read(msg.parseJson))
-  implicit val serdes = jsonFormat(PingMessage.apply _, "name", "profile")
+  implicit val serdes = jsonFormat(PingMessage.apply, "name", "profile")
 }
 
 case class ProfileMessage(instance: InstanceId) extends Message {

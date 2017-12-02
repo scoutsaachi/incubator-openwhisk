@@ -32,7 +32,7 @@ import whisk.utils.DockerProfile
 import whisk.utils.DockerStats
 
 import whisk.core.connector.MessageProducer
-import whisk.core.connector.ProfileMessage
+import whisk.core.connector.PingMessage
 import whisk.core.entity.ByteSize
 import whisk.core.entity.CodeExec
 import whisk.core.entity.EntityName
@@ -98,8 +98,8 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
   def receive: Receive = {
     // A job to run on a container
     case Tick =>
-      producer.send("health", ProfileMessage(invokerInstance)).andThen {
-        case Failure(t) => logging.error(this, "failed to send profile")
+      producer.send("health", PingMessage(invokerInstance, Some("Profile"))).andThen {
+        case Failure(t) => logging.error(this, "failed to send profile: $t")
         case _ => logging.info(this, "sent profile.")
       }
       logging.info(this, "Tick.")
