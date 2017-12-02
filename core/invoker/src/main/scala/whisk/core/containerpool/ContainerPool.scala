@@ -139,6 +139,7 @@ class ContainerPool(getStatsFn : () => Future[Map[String, DockerProfile]],
 
   /** Creates a new container and updates state accordingly. */
   def createContainer(): (ActorRef, ContainerData) = {
+    logging.info(getStatsFn())
     val ref = childFactory(context)
     val data = NoData()
     freePool = freePool + (ref -> data)
@@ -241,7 +242,7 @@ object ContainerPool {
             size: Int,
             feed: ActorRef,
             prewarmConfig: Option[PrewarmingConfig] = None) =
-    Props(new ContainerPool(factory, maxActive, size, feed, prewarmConfig))
+    Props(new ContainerPool(getStatsFn, factory, maxActive, size, feed, prewarmConfig))
 }
 
 /** Contains settings needed to perform container prewarming */
