@@ -43,6 +43,7 @@ import whisk.core.connector._
 import whisk.core.entitlement.Privilege
 import whisk.core.entity.ActivationId.ActivationIdGenerator
 import whisk.core.entity._
+import whisk.utils.Aggregator
 
 // Received events
 case object GetStatus
@@ -56,6 +57,8 @@ case object Healthy extends InvokerState { val asString = "up" }
 case object UnHealthy extends InvokerState { val asString = "unhealthy" }
 
 case class ActivationRequest(msg: ActivationMessage, invoker: InstanceId)
+case class AnalyzeActivation(msg: ActivationMessage)
+case class InstanceHappiness(instance: Option[InstanceId], happiness: Double)
 case class InvocationFinishedMessage(invokerInstance: InstanceId, successful: Boolean)
 
 // Data stored in the Invoker
@@ -75,7 +78,7 @@ final case class InvokerInfo(buffer: RingBuffer[Boolean])
 class InvokerPool(childFactory: (ActorRefFactory, InstanceId) => ActorRef,
                   sendActivationToInvoker: (ActivationMessage, InstanceId) => Future[RecordMetadata],
                   pingConsumer: MessageConsumer)
-    extends Actor {
+    extends Actor with Aggregator {
 
   implicit val transid = TransactionId.invokerHealth
   implicit val logging = new AkkaLogging(context.system.log)
@@ -88,7 +91,7 @@ class InvokerPool(childFactory: (ActorRefFactory, InstanceId) => ActorRef,
   var refToInstance = immutable.Map.empty[ActorRef, InstanceId]
   var status = IndexedSeq[(InstanceId, InvokerState)]()
 
-  def receive = {
+  override def receive = {
     case p: PingMessage =>
       val invoker = instanceToRef.getOrElse(p.instance, registerInvoker(p.instance))
       instanceToRef = instanceToRef.updated(p.instance, invoker)
@@ -119,6 +122,9 @@ class InvokerPool(childFactory: (ActorRefFactory, InstanceId) => ActorRef,
         status = status.updated(instance.toInt, (instance, newState))
       }
       logStatus()
+
+    case AnalyzeActivation(activation) =>
+      new ActivationAnalyzer(sender(), activation, refToInstance.keySet)
 
     // this is only used for the internal test action which enabled an invoker to become healthy again
     case msg: ActivationRequest => sendActivationToInvoker(msg.msg, msg.invoker).pipeTo(sender)
@@ -173,6 +179,43 @@ class InvokerPool(childFactory: (ActorRefFactory, InstanceId) => ActorRef,
     refToInstance = refToInstance.updated(ref, instanceId)
 
     ref
+  }
+
+  class ActivationAnalyzer(sendBack: ActorRef, msg: ActivationMessage, 
+                           invokers: Set[ActorRef]) {
+    var result = InstanceHappiness(None, 0)
+    var count: Int = 0
+
+    private case object TimeOut
+
+    if (invokers.size > 0)
+      invokers foreach ((invoker) => {
+        invoker ! msg
+        expectOnce {
+          case i: InstanceHappiness =>
+            i.instance match {
+              case Some(_) => 
+                if (i.happiness > result.happiness)
+                  result = i
+                count += 1
+              case None =>
+            }
+        }
+      })
+    else returnResult()
+
+    context.system.scheduler.scheduleOnce(1.second, self, TimeOut)
+    expect {
+      case TimeOut =>
+        returnResult(true)
+    }
+
+    def returnResult(force: Boolean = false) {
+      if (count == invokers.size || force) {
+        sendBack ! result
+        context.stop(self)
+      }
+    }
   }
 
 }
@@ -253,6 +296,9 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
   when(Healthy, stateTimeout = healthyTimeout) {
     case Event(_: PingMessage, _) => stay
     case Event(StateTimeout, _)   => goto(Offline)
+    case Event(msg: ActivationMessage, _) =>
+      sender() ! calculateHappiness(msg)
+      stay
   }
 
   /**
@@ -260,7 +306,9 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
    */
   whenUnhandled {
     case Event(cm: InvocationFinishedMessage, info) => handleCompletionMessage(cm.successful, info.buffer)
-    case Event(p: String) => logging.info(this, s"profile changed to $p")
+    case Event(p: String, _) => 
+      logging.info(this, s"profile changed to $p")
+      stay
   }
 
   /** Logging on Transition change */
@@ -356,6 +404,13 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
   private def gotoIfNotThere(newState: InvokerState) = {
     if (stateName == newState) stay() else goto(newState)
   }
+  
+  /**
+   * Calculate happiness based on latest profile
+   */
+  private def calculateHappiness(msg: ActivationMessage): Double = {
+    1.0
+  }
 }
 
 object InvokerActor {
@@ -367,3 +422,5 @@ object InvokerActor {
 
   val timerName = "testActionTimer"
 }
+
+
