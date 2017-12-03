@@ -40,6 +40,8 @@ import whisk.core.entity.ExecutableWhiskAction
 import whisk.core.entity.InstanceId
 import whisk.core.entity.size._
 import whisk.core.connector.MessageFeed
+import scala.concurrent.{Future, Await}
+import whisk.utils.DockerProfile 
 
 sealed trait WorkerState
 case object Busy extends WorkerState
@@ -68,8 +70,10 @@ case class WorkerData(data: ContainerData, state: WorkerState)
  * @param feed actor to request more work from
  * @param prewarmConfig optional settings for container prewarming
  */
+
 class ContainerPool(childFactory: ActorRefFactory => ActorRef,
                     invokerInstance: InstanceId,
+                    getStatsFn : () => Future[Map[String, DockerProfile]],
                     maxActiveContainers: Int,
                     maxPoolSize: Int,
                     feed: ActorRef,
@@ -95,16 +99,37 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
   import ContainerPool.{TickKey, Tick}
   timers.startPeriodicTimer(TickKey, Tick, 10.second)
 
+  protected def collectProfile() : Option[Map[String, DockerProfile]] = {
+    val dockerf : Future[Map[String, DockerProfile]] = getStatsFn()
+    Await.ready(dockerf, Duration.Inf).value.get match {
+      case Success(m) => Option(m)
+      case Failure(e) => {
+        logging.error(this, "got error from collectProfile $e")
+        None
+      }
+    }
+  }
+
+  protected def updateProfile() = {
+    collectProfile() match {
+      case Some(profMap) => {
+        profile(turn) = profMap
+        turn = 1 - turn
+      }
+      case None => {}
+    }
+  }
+
   def receive: Receive = {
     // A job to run on a container
     case Tick =>
-      producer.send("health", PingMessage(invokerInstance, Some("Profile"))).andThen {
+      updateProfile()
+      val dockerIntervalMap = DockerStats.createNewDockerSummary(profile(turn), profile(1- turn))
+      producer.send("health", PingMessage(invokerInstance, Some(dockerIntervalMap))).andThen {
         case Failure(t) => logging.error(this, "failed to send profile: $t")
         case _ => logging.info(this, "sent profile.")
       }
       logging.info(this, "Tick.")
-      profile(turn) = DockerStats.getAllStats().getOrElse(profile(turn))
-      turn = 1 - turn
     case r: Run =>
       val container = if (busyPool.size < maxActiveContainers) {
         // Schedule a job to a warm container
@@ -259,15 +284,16 @@ object ContainerPool {
 
   def props(factory: ActorRefFactory => ActorRef,
             instance: InstanceId,
+            getStatsFn : () => Future[Map[String, DockerProfile]]
             maxActive: Int,
             size: Int,
             feed: ActorRef,
             producer: MessageProducer,
-            prewarmConfig: Option[PrewarmingConfig] = None) =
-    Props(new ContainerPool(factory, instance, maxActive, size, feed, producer, prewarmConfig))
+            prewarmConfig: Option[PrewarmingConfig] = None) = Props(new ContainerPool(factory, instance, getStatsFn, maxActive, size, feed, producer, prewarmConfig))
 
   private case object TickKey
   private case object Tick
+
 }
 
 /** Contains settings needed to perform container prewarming */

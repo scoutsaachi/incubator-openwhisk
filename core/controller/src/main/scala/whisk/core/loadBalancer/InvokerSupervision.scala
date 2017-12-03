@@ -329,7 +329,7 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
    */
   whenUnhandled {
     case Event(cm: InvocationFinishedMessage, info) => handleCompletionMessage(cm.successful, info.buffer)
-    case Event(p: String, _) => 
+    case Event(p: Map[String, DockerInterval], _) => 
       logging.info(this, s"profile changed to $p")
       stay
   }

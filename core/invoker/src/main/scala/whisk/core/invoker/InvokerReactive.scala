@@ -24,7 +24,8 @@ import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.Failure
 import scala.util.Success
-
+import whisk.utils.DockerStats
+import whisk.utils.DockerProfile
 import org.apache.kafka.common.errors.RecordTooLargeException
 
 import akka.actor.ActorRefFactory
@@ -45,12 +46,12 @@ import whisk.core.connector.MessagingProvider
 import whisk.core.containerpool.ContainerFactoryProvider
 import whisk.core.containerpool.ContainerPool
 import whisk.core.containerpool.ContainerProxy
-import whisk.core.containerpool.PrewarmingConfig
+// import whisk.core.containerpool.PrewarmingConfig
 import whisk.core.containerpool.Run
 import whisk.core.containerpool.logging.LogStoreProvider
 import whisk.core.database.NoDocumentException
 import whisk.core.entity._
-import whisk.core.entity.size._
+// import whisk.core.entity.size._
 import whisk.http.Messages
 import whisk.spi.SpiLoader
 
@@ -61,6 +62,9 @@ class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: Messa
   implicit val materializer: ActorMaterializer = ActorMaterializer()
   implicit val ec = actorSystem.dispatcher
   implicit val cfg = config
+
+  // todo put this in the config
+  private val hostIP = "10.0.1.4" // TODO change this
 
   private val logsProvider = SpiLoader.get[LogStoreProvider].logStore(actorSystem)
 
@@ -152,8 +156,29 @@ class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: Messa
     }
     .get
 
+  def getAllStats() : Future[Map[String, DockerProfile]] = {
+    containerFactory.getActionContainerIDs()
+      .flatMap( idSeq => { //idSeq is Seq[ContainerId]
+        val listFutureMappings : List[Future[(String, DockerProfile)]] = idSeq.map(cId => { //cId is a ContainerId
+          containerFactory.getNameContainerStartTime(cId) // Future[String, OffsetDateTime]
+            .flatMap(nameTime => { //nameTime is a String, OffsetDateTime
+              val prof = DockerStats.getExactContainerStat(nameTime._1, hostIP, Option(nameTime._2)) // Future[DockerProfile]
+	            prof.flatMap(dp => Future(nameTime._1, dp)) // Future[String, DockerProfile]
+            }) // Future[String. Future[DockerProfile]]
+        }).toList // Seq[Future[String , DockerProfile]]
+
+        Future.sequence(listFutureMappings) // Future[List[String,DockerProfile]]
+          .flatMap( l => { // List[String, DockerProfile]
+            val m = l.toMap // Map[String->DockerProfile]
+	          Future(m)
+            //Future.sequence(map.map(entry => entry._2.map(i => (entry._1, i)))).map(_.toMap)
+          }) // Future[Map[String->DockerProfile]]
+      }) //Future[Map[String->DockerProfile]]]
+  }
+
   val pool = actorSystem.actorOf(
     ContainerPool.props(
+      getAllStats,
       childFactory,
       instance,
       maximumContainers,

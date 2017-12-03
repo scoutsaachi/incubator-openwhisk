@@ -2,23 +2,45 @@ package whisk.utils
 
 import spray.json._
 import java.time.OffsetDateTime
-import sys.process._
-import scala.language.postfixOps
 import java.time.Duration
 import scala.util.{Try, Success, Failure}
-import scala.concurrent.{Future, ExecutionContext, Await}
-import scala.concurrent.duration.{Duration => SDuration}
+import scala.concurrent.{Future}
 
+/**
+ * DockerProfile represents the profile of a single container at a single point in time
+ * Fields:
+ *  name: name of the docker container
+ *  readTime: time that these stats were collected
+ *  cpuPerc: in a 1s interval, how much of the CPU was used by this container
+ *  activationCPU: cummulative activation CPU used by this container
+ *  systemCPU: cummulative system CPU used by this host
+ *  totalIo: cummulative bytes of IO written or read
+ *  networkUsage: cummulative bytes sent or recvd through the network
+ *  containerCreated: container creation time. Must not be None if used for aggregate invoker usage
+ */
 case class DockerProfile(name: String, readTime: OffsetDateTime, cpuPerc: BigDecimal,
-                         totalIo: BigDecimal, networkUsage: BigDecimal,
-                         containerCreated: Option[OffsetDateTime])
+                         activationCPU: BigDecimal, systemCPU: BigDecimal, totalIo: BigDecimal,
+                         networkUsage: BigDecimal, containerCreated: Option[OffsetDateTime])
 
-// representes profile displacement stats
-// throughputs are per bytes/ms
-case class DockerInterval(name: String, cpuPerc: BigDecimal, ioThroughput: BigDecimal,
-                          networkThroughput: BigDecimal)
+/**
+ * DockerInterval represents the behavior of a job over time. This is computed
+ * by comparing two DockerProfiles
+ * DockerInterval is used in two cases:
+ * (1) by the invoker to get a profile of all running jobs. In this case, there might
+ *     not be a starting docker interval, and we care about CPU percentage over one second
+ * (2) by the invoker to get a total profile of an activation. In this case there
+ *     will always be a starting docker interval, and we care about the CPU percentage
+ *     between the two intervals
+ *
+ * Fields:
+ *  name: the name of the docker container
+ *  cpuPerc: the CPU percentage (see notes above)
+ *  ioThroughput: bytes/ms written or read
+ *  networkThroughput: bytes/ms sent or recv'd over the network
+ */
+case class DockerInterval(name: String, cpuPerc: BigDecimal, ioThroughput: BigDecimal, networkThroughput: BigDecimal)
 
-object DocerkInterval extends DefaultJsonProtocol {
+object DockerInterval extends DefaultJsonProtocol {
     implicit val serdes = jsonFormat4(DockerInterval.apply)
 }
 
@@ -41,7 +63,7 @@ object DockerStats {
     // create an interval with respect to a starting point
     def createDockerInterval(prof: DockerProfile, oldP: DockerProfile) : DockerInterval = {
         val time_interval = Duration.between(oldP.readTime, prof.readTime).toMillis()
-        val cpu_perc = prof.cpuPerc
+        val cpu_perc = (prof.activationCPU - oldP.activationCPU)/(prof.systemCPU - oldP.systemCPU)
         val io_thrpt : BigDecimal = (prof.totalIo - oldP.totalIo)/time_interval
         val network_thrpt : BigDecimal = (prof.networkUsage - oldP.networkUsage)/time_interval
         DockerInterval(prof.name, cpu_perc, io_thrpt, network_thrpt)
@@ -90,38 +112,15 @@ object DockerStats {
             .map(_.asInstanceOf[JsObject])
             .map(x => getNestedJSValue(List(), "rx_bytes", Option(x)).map(_.asInstanceOf[JsNumber]).getOrElse(JsNumber(0))).map(_.value))
        val networkBytes = network_byte_values.sum
-       DockerProfile(name, readTime, cpu_perc, totalIo, networkBytes, containerCreated)
+       DockerProfile(name, readTime, cpu_perc, activation_usage, system_usage, totalIo, networkBytes, containerCreated)
     }
 
     // Get the docker profile corresponding to a name
-    def getExactContainerStat(name: String, containerCreated: Option[OffsetDateTime]) : Option[DockerProfile] = {
-       val respTry = Try(scala.io.Source.fromURL(s"http://0.0.0.0:4243/containers/$name/stats?stream=false").mkString)
+    def getExactContainerStat(name: String, ipAddr: String, containerCreated: Option[OffsetDateTime]) : Future[DockerProfile] = {
+       val respTry = Try(scala.io.Source.fromURL(s"http://$ipAddr:4243/containers/$name/stats?stream=false").mkString)
        respTry match {
-          case Success(resp) => Option(extractMetricsFromResp(name, resp, containerCreated))
-          case Failure(e) => None
+          case Success(resp) => Future.successful(extractMetricsFromResp(name, resp, containerCreated))
+          case Failure(e) => Future.failed(e)
        }
-    }
-
-    // Get all docker profiles of running containers
-    def getAllStats()(implicit ec: ExecutionContext) : Option[Map[String, DockerProfile]] = {
-        // val dockerIds : String = "docker ps -q  --filter name=wsk" !!
-        val dockerIds : String = "" 
-
-        if (!dockerIds.isEmpty()) {
-            val dockerNamesTimes : String = s"sudo docker inspect -f {{.Name}},{{.State.StartedAt}} $dockerIds" !!
-            val dockerNamesTimesSeq = dockerNamesTimes.split("\n").toList.map(_.split(",").toList)
-            val futureList = (for(dockerNameTime <- dockerNamesTimesSeq) yield Future{
-                val dockerName = dockerNameTime(0).substring(1)
-                val dockerTime = OffsetDateTime.parse(dockerNameTime(1))
-                getExactContainerStat(dockerName, Option(dockerTime)) // Option[DockerProfile]
-            }).toList
-            val futureSeq = Future.sequence(futureList)
-            //futureSeq onComplete {
-            //    case Success(results) => results.flatten.map(p => p.name -> p).toMap
-            //    case Failure(t) => new Map[String, DockerProfile]() // todo, put some logging here
-            //}
-            val collectedProfiles = Await.result(futureSeq, SDuration.Inf) // List of Option[DockerProfile]
-            Some(collectedProfiles.flatten.map(p => p.name -> p).toMap) 
-        } else None
     }
 }
