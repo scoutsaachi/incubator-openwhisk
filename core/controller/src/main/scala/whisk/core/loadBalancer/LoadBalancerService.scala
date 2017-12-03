@@ -18,7 +18,6 @@
 package whisk.core.loadBalancer
 
 import java.nio.charset.StandardCharsets
-
 import scala.annotation.tailrec
 import scala.concurrent.Await
 import scala.concurrent.ExecutionContext
@@ -105,6 +104,9 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
       new DistributedLoadBalancerData()
     }
   }
+  // Mapping from activation name to running activation profile 
+  private val activationProfileMap = scala.collection.mutable.Map[String, ActivationProfile]()
+  private val defaultActivationProfile = ActivationProfile(1, 0, 0)
 
   override def activeActivationsFor(namespace: UUID) = loadBalancerData.activationCountOn(namespace)
 
@@ -282,6 +284,7 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
     val raw = new String(bytes, StandardCharsets.UTF_8)
     CompletionMessage.parse(raw) match {
       case Success(m: CompletionMessage) =>
+        logging.info(this, s"processing active ack with $m")
         processCompletion(m.response, m.transid, forced = false, invoker = m.invoker)
         activationFeed ! MessageFeed.Processed
 
@@ -314,8 +317,10 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
   /** Determine which invoker this activation should go to. Due to dynamic conditions, it may return no invoker. */
   private def chooseInvoker(user: Identity, action: ExecutableWhiskActionMetaData): Future[InstanceId] = {
     logging.info(this, "choosing invoker")
+    // Activation profile
+    val actProf = activationProfileMap.get(action.name).getOrElse(defaultActivationProfile)
     val chosenInvoker: Future[InstanceId] = invokerPool
-      .ask(AnalyzeActivation(ActivationProfile("activation profile")))(Timeout(5.seconds))
+      .ask(AnalyzeActivation(actProf)(Timeout(5.seconds))
       .mapTo[Option[InstanceId]]
       .flatMap {
         case Some(invoker) => Future.successful(invoker)
