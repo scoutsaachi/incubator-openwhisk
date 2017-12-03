@@ -57,14 +57,12 @@ import whisk.spi.SpiLoader
 
 class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: MessageProducer)(
   implicit actorSystem: ActorSystem,
-  logging: Logging) {
+  logging: Logging,
+  ) {
 
   implicit val materializer: ActorMaterializer = ActorMaterializer()
   implicit val ec = actorSystem.dispatcher
   implicit val cfg = config
-
-  // todo put this in the config
-  private val hostIP = "10.0.1.4" // TODO change this
 
   private val logsProvider = SpiLoader.get[LogStoreProvider].logStore(actorSystem)
 
@@ -162,7 +160,7 @@ class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: Messa
         val listFutureMappings : List[Future[(String, DockerProfile)]] = idSeq.map(cId => { //cId is a ContainerId
           containerFactory.getNameContainerStartTime(cId) // Future[String, OffsetDateTime]
             .flatMap(nameTime => { //nameTime is a String, OffsetDateTime
-              val prof = DockerStats.getExactContainerStat(nameTime._1, hostIP, Option(nameTime._2)) // Future[DockerProfile]
+              val prof = DockerStats.getExactContainerStat(nameTime._1, Option(nameTime._2)) // Future[DockerProfile]
 	            prof.flatMap(dp => Future(nameTime._1, dp)) // Future[String, DockerProfile]
             }) // Future[String. Future[DockerProfile]]
         }).toList // Seq[Future[String , DockerProfile]]

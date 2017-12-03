@@ -75,7 +75,8 @@ object Invoker {
   def main(args: Array[String]): Unit = {
     //val dockerTest = DockerStats.getIds()
     Kamon.start()
-
+    // todo put this in the config
+    implicit val hostIPAddr = "10.0.1.4" // TODO change this
     implicit val ec = ExecutionContextFactory.makeCachedThreadPoolExecutionContext()
     implicit val actorSystem: ActorSystem =
       ActorSystem(name = "invoker-actor-system", defaultExecutionContext = Some(ec))

@@ -344,15 +344,15 @@ class ContainerProxy(factory: (TransactionId, String, ImageName, Boolean, ByteSi
           "deadline" -> (Instant.now.toEpochMilli + actionTimeout.toMillis).toString.toJson)
 
         container.run(parameters, environment, actionTimeout)(job.msg.transid).map {
-          case (runInterval, response) =>
+          case (runInterval, response, stats) =>
             val initRunInterval =
               Interval(runInterval.start.minusMillis(initInterval.duration.toMillis), runInterval.end)
-            ContainerProxy.constructWhiskActivation(job, initRunInterval, response)
+            ContainerProxy.constructWhiskActivation(job, initRunInterval, response, stats)
         }
       }
       .recover {
-        case InitializationError(interval, response) =>
-          ContainerProxy.constructWhiskActivation(job, interval, response)
+        case InitializationError(interval, response, stats) =>
+          ContainerProxy.constructWhiskActivation(job, interval, response, stats)
         case t =>
           // Actually, this should never happen - but we want to make sure to not miss a problem
           logging.error(this, s"caught unexpected error while running activation: ${t}")
@@ -418,7 +418,7 @@ object ContainerProxy {
    * @param response the response to return to the user
    * @return a WhiskActivation to be sent to the user
    */
-  def constructWhiskActivation(job: Run, interval: Interval, response: ActivationResponse) = {
+  def constructWhiskActivation(job: Run, interval: Interval, response: ActivationResponse, stats: Option[DockerInterval]=None) = {
     val causedBy = if (job.msg.causedBySequence) Parameters("causedBy", "sequence".toJson) else Parameters()
     WhiskActivation(
       activationId = job.msg.activationId,

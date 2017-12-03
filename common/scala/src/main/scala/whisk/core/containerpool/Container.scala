@@ -36,6 +36,7 @@ import whisk.core.entity.ActivationResponse.ContainerResponse
 import whisk.core.entity.ByteSize
 import whisk.core.entity.size._
 import whisk.http.Messages
+import whisk.core.invoker
 
 /**
  * An OpenWhisk biased container abstraction. This is **not only** an abstraction
@@ -108,9 +109,18 @@ trait Container {
 
   /** Runs code in the container. */
   def run(parameters: JsObject, environment: JsObject, timeout: FiniteDuration)(
-    implicit transid: TransactionId): Future[(Interval, ActivationResponse)] = {
+    implicit transid: TransactionId): Future[(Interval, ActivationResponse, Option[DockerInterval])] = {
     val actionName = environment.fields.get("action_name").map(_.convertTo[String]).getOrElse("")
-    val start =
+    // get profile here
+    val startProf =  Await.ready(getExactContainerStat(id.val, None), Duration.Inf).value.get match {
+      case Success(m) => Option(m)
+      case Failure(e) => {
+        logging.error(this, "got error from getting activation stat $e")
+        None
+      }
+    }
+
+    val start = 
       transid.started(this, LoggingMarkers.INVOKER_ACTIVATION_RUN, s"sending arguments to $actionName at $id $addr")
 
     val parameterWrapper = JsObject("value" -> parameters)
@@ -132,8 +142,24 @@ trait Container {
         } else {
           ActivationResponse.processRunResponseContent(result.response, logging)
         }
-
-        (result.interval, response)
+        // get profile here
+        val endProf =  Await.ready(getExactContainerStat(id.val, None), Duration.Inf).value.get match {
+          case Success(m) => Option(m)
+          case Failure(e) => {
+            logging.error(this, "got error from getting activation stat $e")
+            None
+          }
+        }
+        val profInterval = startProf match {
+          case Some(sP) => {
+            endProf match {
+              case Some(eP) => DockerStats.createDockerInterval(sP, eP)
+              case None => None
+            }
+          }
+          case None => None
+        }
+        (result.interval, response, profInterval)
       }
   }
 
