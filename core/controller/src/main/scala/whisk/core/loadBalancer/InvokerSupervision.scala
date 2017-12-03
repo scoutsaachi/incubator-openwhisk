@@ -46,7 +46,7 @@ import whisk.core.entitlement.Privilege
 import whisk.core.entity.ActivationId.ActivationIdGenerator
 import whisk.core.entity._
 import whisk.utils.Aggregator
-
+import whisk.utils.DockerInterval
 // Received events
 case object GetStatus
 
@@ -64,6 +64,7 @@ case class ActivationRequest(msg: ActivationMessage, invoker: InstanceId)
 case class AnalyzeActivation(profile: ActivationProfile)
 case class InstanceHappiness(instance: InstanceId, happiness: Double)
 case class InvocationFinishedMessage(invokerInstance: InstanceId, successful: Boolean)
+case class DockerIntervalMessage(intervalMap: Map[String, DockerInterval])
 
 // Data stored in the Invoker
 final case class InvokerInfo(buffer: RingBuffer[Boolean])
@@ -102,7 +103,7 @@ class InvokerPool(childFactory: (ActorRefFactory, InstanceId) => ActorRef,
       p.profile match {
         case Some(prof) => 
           logging.info(this, s"received invoker $prof ")
-          invoker.forward(prof)
+          invoker.forward(DockerIntervalMessage(prof))
           // val f: Future[Any] = self ? AnalyzeActivation(ActivationProfile("activation profile"))
           // val pickResult: InstanceId = Await.result(f, 1.second).asInstanceOf[InstanceId]
           // logging.info(this, s"picked instance $pickResult ")
@@ -329,7 +330,7 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
    */
   whenUnhandled {
     case Event(cm: InvocationFinishedMessage, info) => handleCompletionMessage(cm.successful, info.buffer)
-    case Event(p: Map[String, DockerInterval], _) => 
+    case Event(p: DockerIntervalMessage, _) => 
       logging.info(this, s"profile changed to $p")
       stay
   }

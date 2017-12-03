@@ -20,7 +20,7 @@ package whisk.core.containerpool
 import scala.collection.immutable
 import scala.concurrent.duration._
 import scala.concurrent._
-import scala.util.Failure
+import scala.util.{Success, Failure}
 
 import akka.actor.Actor
 import akka.actor.ActorRef
@@ -124,7 +124,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
     // A job to run on a container
     case Tick =>
       updateProfile()
-      val dockerIntervalMap = DockerStats.createNewDockerSummary(profile(turn), profile(1- turn))
+      val dockerIntervalMap = DockerStats.computeNewDockerSummary(profile(turn), profile(1- turn))
       producer.send("health", PingMessage(invokerInstance, Some(dockerIntervalMap))).andThen {
         case Failure(t) => logging.error(this, "failed to send profile: $t")
         case _ => logging.info(this, "sent profile.")
@@ -284,7 +284,7 @@ object ContainerPool {
 
   def props(factory: ActorRefFactory => ActorRef,
             instance: InstanceId,
-            getStatsFn : () => Future[Map[String, DockerProfile]]
+            getStatsFn : () => Future[Map[String, DockerProfile]],
             maxActive: Int,
             size: Int,
             feed: ActorRef,
