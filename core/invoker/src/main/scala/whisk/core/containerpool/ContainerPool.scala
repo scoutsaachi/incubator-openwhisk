@@ -104,7 +104,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
     Await.ready(dockerf, Duration.Inf).value.get match {
       case Success(m) => Option(m)
       case Failure(e) => {
-        logging.error(this, "got error from collectProfile $e")
+        logging.error(this, s"got error from collectProfile $e")
         None
       }
     }
@@ -126,7 +126,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
       updateProfile()
       val dockerIntervalMap = DockerStats.computeNewDockerSummary(profile(turn), profile(1- turn))
       producer.send("health", PingMessage(invokerInstance, Some(dockerIntervalMap))).andThen {
-        case Failure(t) => logging.error(this, "failed to send profile: $t")
+        case Failure(t) => logging.error(this, s"failed to send profile: $t")
         case _ => logging.info(this, "sent profile.")
       }
       logging.info(this, "Tick.")

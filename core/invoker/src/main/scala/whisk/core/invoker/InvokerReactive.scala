@@ -63,9 +63,6 @@ class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: Messa
   implicit val ec = actorSystem.dispatcher
   implicit val cfg = config
 
-  // todo put this in the config
-  private val hostIP = "172.72.24.205" // TODO change this
-
   private val logsProvider = SpiLoader.get[LogStoreProvider].logStore(actorSystem)
 
   /**
@@ -116,7 +113,7 @@ class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: Messa
              blockingInvoke: Boolean,
              controllerInstance: InstanceId) => {
     implicit val transid = tid
-
+    logging.info(this, s"sending active ack with activation result ${activationResult.toJson}")
     def send(res: Either[ActivationId, WhiskActivation], recovery: Boolean = false) = {
       val msg = CompletionMessage(transid, res, instance)
 
@@ -162,7 +159,7 @@ class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: Messa
         val listFutureMappings : List[Future[(String, DockerProfile)]] = idSeq.map(cId => { //cId is a ContainerId
           containerFactory.getNameContainerStartTime(cId) // Future[String, OffsetDateTime]
             .flatMap(nameTime => { //nameTime is a String, OffsetDateTime
-              val prof = DockerStats.getExactContainerStat(nameTime._1, hostIP, Option(nameTime._2)) // Future[DockerProfile]
+              val prof = DockerStats.getExactContainerStat(nameTime._1, Option(nameTime._2)) // Future[DockerProfile]
 	            prof.flatMap(dp => Future(nameTime._1, dp)) // Future[String, DockerProfile]
             }) // Future[String. Future[DockerProfile]]
         }).toList // Seq[Future[String , DockerProfile]]

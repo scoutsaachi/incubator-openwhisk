@@ -45,7 +45,7 @@ object DockerInterval extends DefaultJsonProtocol {
 }
 
 object DockerStats {
-
+    val hostIPAddr = "10.0.1.4"
     def computeNewDockerSummary(oldMap: Map[String, DockerProfile], newMap: Map[String, DockerProfile]) : Map[String, DockerInterval] = {
         (for ((name, newProf) <- newMap) yield {
             val interval = oldMap.get(name) match {
@@ -116,9 +116,9 @@ object DockerStats {
     }
 
     // Get the docker profile corresponding to a name
-    def getExactContainerStat(name: String, ipAddr: String, containerCreated: Option[OffsetDateTime]) : Future[DockerProfile] = {
-       val respTry = Try(scala.io.Source.fromURL(s"http://$ipAddr:4243/containers/$name/stats?stream=false").mkString)
-       respTry match {
+    def getExactContainerStat(name: String, containerCreated: Option[OffsetDateTime]) : Future[DockerProfile] = {
+        val respTry = Try(scala.io.Source.fromURL(s"http://$hostIPAddr:4243/containers/$name/stats?stream=false").mkString)
+        respTry match {
           case Success(resp) => Future.successful(extractMetricsFromResp(name, resp, containerCreated))
           case Failure(e) => Future.failed(e)
        }

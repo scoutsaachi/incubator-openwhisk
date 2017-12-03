@@ -58,8 +58,7 @@ case object Offline extends InvokerState { val asString = "down" }
 case object Healthy extends InvokerState { val asString = "up" }
 case object UnHealthy extends InvokerState { val asString = "unhealthy" }
 
-case class ActivationProfile(prof: String, cpuPerc: BigDecimal = 0, 
-  ioThroughput: BigDecimal = 0, networkThroughput: BigDecimal = 0)
+case class ActivationProfile(cpuPerc: BigDecimal, ioThroughput: BigDecimal, networkThroughput: BigDecimal)
 
 case class ActivationRequest(msg: ActivationMessage, invoker: InstanceId)
 case class AnalyzeActivation(profile: ActivationProfile)
