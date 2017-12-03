@@ -113,7 +113,7 @@ class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: Messa
              blockingInvoke: Boolean,
              controllerInstance: InstanceId) => {
     implicit val transid = tid
-
+    logging.info(this, s"sending active ack with activation result ${activationResult.toJson}")
     def send(res: Either[ActivationId, WhiskActivation], recovery: Boolean = false) = {
       val msg = CompletionMessage(transid, res, instance)
 

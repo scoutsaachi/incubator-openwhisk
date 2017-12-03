@@ -345,6 +345,7 @@ class ContainerProxy(factory: (TransactionId, String, ImageName, Boolean, ByteSi
 
         container.run(parameters, environment, actionTimeout)(job.msg.transid).map {
           case (runInterval, response, stats) =>
+            logging.info(this, s"trying to create activation with $stats")
             val initRunInterval =
               Interval(runInterval.start.minusMillis(initInterval.duration.toMillis), runInterval.end)
             ContainerProxy.constructWhiskActivation(job, initRunInterval, response, stats)
@@ -418,7 +419,7 @@ object ContainerProxy {
    * @param response the response to return to the user
    * @return a WhiskActivation to be sent to the user
    */
-  def constructWhiskActivation(job: Run, interval: Interval, response: ActivationResponse, stats: Option[DockerInterval]=None) = {
+  def constructWhiskActivation(job: Run, interval: Interval, response: ActivationResponse, statsValue: Option[DockerInterval]=None) = {
     val causedBy = if (job.msg.causedBySequence) Parameters("causedBy", "sequence".toJson) else Parameters()
     WhiskActivation(
       activationId = job.msg.activationId,
@@ -436,7 +437,8 @@ object ContainerProxy {
           Parameters("path", job.action.fullyQualifiedName(false).toString.toJson) ++
           Parameters("kind", job.action.exec.kind.toJson) ++
           causedBy
-      })
+      },
+      stats=statsValue)
   }
 }
 
