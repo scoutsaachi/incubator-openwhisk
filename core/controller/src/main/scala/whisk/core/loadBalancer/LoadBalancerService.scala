@@ -313,6 +313,20 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
 
   /** Determine which invoker this activation should go to. Due to dynamic conditions, it may return no invoker. */
   private def chooseInvoker(user: Identity, action: ExecutableWhiskActionMetaData): Future[InstanceId] = {
+    logging.info(this, "choosing invoker")
+    val chosenInvoker: Future[InstanceId] = invokerPool
+      .ask(AnalyzeActivation(ActivationProfile("activation profile")))(Timeout(5.seconds))
+      .mapTo[Option[InstanceId]]
+      .flatMap {
+        case Some(invoker) => Future.successful(invoker)
+        case None =>
+          logging.error(this, s"all invokers down")(TransactionId.invokerHealth)
+          Future.failed(new LoadBalancerException("no invokers available"))
+      }
+
+    val pickResult: InstanceId = Await.result(chosenInvoker, 5.second)
+    logging.info(this, s"picked instance $pickResult ")
+
     val hash = generateHash(user.namespace, action)
 
     loadBalancerData.activationCountPerInvoker.flatMap { currentActivations =>

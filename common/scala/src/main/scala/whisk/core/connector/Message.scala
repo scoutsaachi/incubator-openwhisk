@@ -120,12 +120,3 @@ object PingMessage extends DefaultJsonProtocol {
   def parse(msg: String) = Try(serdes.read(msg.parseJson))
   implicit val serdes = jsonFormat(PingMessage.apply, "name", "profile")
 }
-
-case class ProfileMessage(instance: InstanceId) extends Message {
-  override def serialize = ProfileMessage.serdes.write(this).compactPrint
-}
-
-object ProfileMessage extends DefaultJsonProtocol {
-  def parse(msg: String): Try[ProfileMessage] = Try(serdes.read(msg.parseJson))
-  private val serdes = jsonFormat(ProfileMessage.apply _, "name")
-}
