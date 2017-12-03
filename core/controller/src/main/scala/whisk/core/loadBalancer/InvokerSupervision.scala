@@ -58,7 +58,8 @@ case object Offline extends InvokerState { val asString = "down" }
 case object Healthy extends InvokerState { val asString = "up" }
 case object UnHealthy extends InvokerState { val asString = "unhealthy" }
 
-case class ActivationProfile(prof: String)
+case class ActivationProfile(prof: String, cpuPerc: BigDecimal = 0, 
+  ioThroughput: BigDecimal = 0, networkThroughput: BigDecimal = 0)
 
 case class ActivationRequest(msg: ActivationMessage, invoker: InstanceId)
 case class AnalyzeActivation(profile: ActivationProfile)
@@ -275,7 +276,7 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
   implicit val transid = TransactionId.invokerHealth
   implicit val logging = new AkkaLogging(context.system.log)
   val name = s"invoker${invokerInstance.toInt}"
-  var profile: String = ""
+  var invokerProfile = immutable.Map.empty[String, DockerInterval]
 
   val healthyTimeout = 10.seconds
 
@@ -297,6 +298,9 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
    */
   when(Offline) {
     case Event(_: PingMessage, _) => goto(UnHealthy)
+    case Event(profile: ActivationProfile, _) =>
+      sender() ! InstanceHappiness(invokerInstance, -1.0)
+      stay
   }
 
   /**
@@ -309,6 +313,9 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
       invokeTestAction()
       stay
     }
+    case Event(profile: ActivationProfile, _) =>
+      sender() ! InstanceHappiness(invokerInstance, -1.0)
+      stay
   }
 
   /**
@@ -330,8 +337,9 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
    */
   whenUnhandled {
     case Event(cm: InvocationFinishedMessage, info) => handleCompletionMessage(cm.successful, info.buffer)
-    case Event(p: DockerIntervalMessage, _) => 
-      logging.info(this, s"profile changed to $p")
+    case Event(msg: DockerIntervalMessage, _) => 
+      invokerProfile = msg.intervalMap
+      logging.info(this, s"invoker profile changed to $msg")
       stay
   }
 
@@ -432,8 +440,40 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
   /**
    * Calculate happiness based on latest profile
    */
-  private def calculateHappiness(profile: ActivationProfile): Double = {
-    1.0
+  private def calculateHappiness(activationProfile: ActivationProfile): Double = {
+    var happiness: Double = 
+      activationProfile.ioThroughput.doubleValue() + activationProfile.networkThroughput.doubleValue()
+    val n = invokerProfile.size + 1
+    val pp = Array[BigDecimal](n)
+    val p: List[BigDecimal] = activationProfile.cpuPerc :: (invokerProfile map {
+      case (k,v) =>
+        happiness = happiness + v.ioThroughput.doubleValue()
+        happiness = happiness + v.networkThroughput.doubleValue()
+        v.cpuPerc
+    }).toList
+    var shareLeft: BigDecimal = 1.0
+    var unsat = n
+
+    while (shareLeft > 0 && unsat > 0) {
+      val shareToGive: BigDecimal = shareLeft / unsat
+      for (i <- 0 until n) {
+        if (pp(i) < p(i)) {
+          if (shareToGive < p(i) - pp(i)) {
+            pp(i) = pp(i) + shareToGive
+            shareLeft = shareLeft - shareToGive
+          } else {
+            pp(i) = p(i)
+            unsat -= 1
+            shareLeft = shareLeft - (p(i) - pp(i))
+          }
+        }
+      }
+    }
+
+    for (i <- 0 until n) {
+      happiness = happiness + (pp(i) * pp(i) / p(i) / p(i)).doubleValue()
+    }
+    happiness
   }
 }
 

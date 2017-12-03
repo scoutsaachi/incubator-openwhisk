@@ -64,7 +64,7 @@ class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: Messa
   implicit val cfg = config
 
   // todo put this in the config
-  private val hostIP = "10.0.1.4" // TODO change this
+  private val hostIP = "172.72.24.205" // TODO change this
 
   private val logsProvider = SpiLoader.get[LogStoreProvider].logStore(actorSystem)
 
