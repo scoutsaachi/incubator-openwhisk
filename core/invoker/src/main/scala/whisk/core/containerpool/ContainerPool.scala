@@ -31,8 +31,9 @@ import whisk.core.entity.EntityName
 import whisk.core.entity.ExecutableWhiskAction
 import whisk.core.entity.size._
 import whisk.core.connector.MessageFeed
-import scala.concurrent.Future
+import scala.concurrent.{Future,Await}
 import whisk.utils.DockerProfile 
+import scala.concurrent.duration._
 
 sealed trait WorkerState
 case object Busy extends WorkerState
@@ -139,7 +140,7 @@ class ContainerPool(getStatsFn : () => Future[Map[String, DockerProfile]],
 
   /** Creates a new container and updates state accordingly. */
   def createContainer(): (ActorRef, ContainerData) = {
-    print(Await.result(future, 5000 millis))
+    print(Await.result(getStatsFn(), 5000.milliseconds))
     val ref = childFactory(context)
     val data = NoData()
     freePool = freePool + (ref -> data)

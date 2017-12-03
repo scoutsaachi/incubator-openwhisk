@@ -46,12 +46,12 @@ import whisk.core.connector.MessagingProvider
 import whisk.core.containerpool.ContainerFactoryProvider
 import whisk.core.containerpool.ContainerPool
 import whisk.core.containerpool.ContainerProxy
-// import whisk.core.containerpool.PrewarmingConfig
+import whisk.core.containerpool.PrewarmingConfig
 import whisk.core.containerpool.Run
 import whisk.core.containerpool.logging.LogStoreProvider
 import whisk.core.database.NoDocumentException
 import whisk.core.entity._
-// import whisk.core.entity.size._
+import whisk.core.entity.size._
 import whisk.http.Messages
 import whisk.spi.SpiLoader
 
