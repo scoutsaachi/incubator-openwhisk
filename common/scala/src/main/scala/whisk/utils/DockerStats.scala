@@ -45,7 +45,7 @@ object DockerInterval extends DefaultJsonProtocol {
 }
 
 object DockerStats {
-    val hostIpAddr = "10.0.1.4"
+    val hostIPAddr = "10.0.1.4"
     def computeNewDockerSummary(oldMap: Map[String, DockerProfile], newMap: Map[String, DockerProfile]) : Map[String, DockerInterval] = {
         (for ((name, newProf) <- newMap) yield {
             val interval = oldMap.get(name) match {

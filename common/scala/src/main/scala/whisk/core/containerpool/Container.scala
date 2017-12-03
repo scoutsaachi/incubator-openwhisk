@@ -16,10 +16,10 @@
  */
 
 package whisk.core.containerpool
-
+import whisk.utils.{DockerStats, DockerInterval, DockerProfile}
 import java.time.Instant
 import scala.concurrent.ExecutionContext
-import scala.concurrent.Future
+import scala.concurrent.{Future, Await}
 import scala.concurrent.duration.Duration
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.duration._
@@ -36,7 +36,6 @@ import whisk.core.entity.ActivationResponse.ContainerResponse
 import whisk.core.entity.ByteSize
 import whisk.core.entity.size._
 import whisk.http.Messages
-import whisk.core.invoker
 
 /**
  * An OpenWhisk biased container abstraction. This is **not only** an abstraction
@@ -112,7 +111,7 @@ trait Container {
     implicit transid: TransactionId): Future[(Interval, ActivationResponse, Option[DockerInterval])] = {
     val actionName = environment.fields.get("action_name").map(_.convertTo[String]).getOrElse("")
     // get profile here
-    val startProf =  Await.ready(getExactContainerStat(id.val, None), Duration.Inf).value.get match {
+    val startProf : Option[DockerProfile] =  Await.ready(DockerStats.getExactContainerStat(id.asString, None), Duration.Inf).value.get match {
       case Success(m) => Option(m)
       case Failure(e) => {
         logging.error(this, "got error from getting activation stat $e")
@@ -143,17 +142,17 @@ trait Container {
           ActivationResponse.processRunResponseContent(result.response, logging)
         }
         // get profile here
-        val endProf =  Await.ready(getExactContainerStat(id.val, None), Duration.Inf).value.get match {
+        val endProf : Option[DockerProfile]=  Await.ready(DockerStats.getExactContainerStat(id.asString, None), Duration.Inf).value.get match {
           case Success(m) => Option(m)
           case Failure(e) => {
             logging.error(this, "got error from getting activation stat $e")
             None
           }
         }
-        val profInterval = startProf match {
+        val profInterval : Option[DockerInterval] = startProf match {
           case Some(sP) => {
             endProf match {
-              case Some(eP) => DockerStats.createDockerInterval(sP, eP)
+              case Some(eP) => Option(DockerStats.createDockerInterval(sP, eP))
               case None => None
             }
           }

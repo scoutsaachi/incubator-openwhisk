@@ -23,7 +23,7 @@ import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.Success
 import scala.util.Failure
-
+import whisk.utils.DockerInterval
 import akka.actor.FSM
 import akka.actor.Props
 import akka.actor.Stash
@@ -351,8 +351,8 @@ class ContainerProxy(factory: (TransactionId, String, ImageName, Boolean, ByteSi
         }
       }
       .recover {
-        case InitializationError(interval, response, stats) =>
-          ContainerProxy.constructWhiskActivation(job, interval, response, stats)
+        case InitializationError(interval, response) =>
+          ContainerProxy.constructWhiskActivation(job, interval, response, None)
         case t =>
           // Actually, this should never happen - but we want to make sure to not miss a problem
           logging.error(this, s"caught unexpected error while running activation: ${t}")

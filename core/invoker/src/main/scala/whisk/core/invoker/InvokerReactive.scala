@@ -57,8 +57,7 @@ import whisk.spi.SpiLoader
 
 class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: MessageProducer)(
   implicit actorSystem: ActorSystem,
-  logging: Logging,
-  ) {
+  logging: Logging) {
 
   implicit val materializer: ActorMaterializer = ActorMaterializer()
   implicit val ec = actorSystem.dispatcher
