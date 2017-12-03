@@ -139,7 +139,7 @@ class ContainerPool(getStatsFn : () => Future[Map[String, DockerProfile]],
 
   /** Creates a new container and updates state accordingly. */
   def createContainer(): (ActorRef, ContainerData) = {
-    logging.info(getStatsFn())
+    print(Await.result(future, 5000 millis))
     val ref = childFactory(context)
     val data = NoData()
     freePool = freePool + (ref -> data)

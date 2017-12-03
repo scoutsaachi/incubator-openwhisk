@@ -178,7 +178,7 @@ class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: Messa
 
   val pool = actorSystem.actorOf(
     ContainerPool.props(
-      getAllStats
+      getAllStats,
       childFactory,
       maximumContainers,
       maximumContainers,
