@@ -16,7 +16,6 @@
  */
 
 package whisk.core.loadBalancer
-
 import java.nio.charset.StandardCharsets
 import scala.annotation.tailrec
 import scala.concurrent.Await
@@ -284,7 +283,7 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
     val raw = new String(bytes, StandardCharsets.UTF_8)
     CompletionMessage.parse(raw) match {
       case Success(m: CompletionMessage) =>
-        logging.info(this, s"processing active ack with $m")
+        logging.info(this, s"processing active ack with $m, $raw")
         processCompletion(m.response, m.transid, forced = false, invoker = m.invoker)
         activationFeed ! MessageFeed.Processed
 
@@ -318,9 +317,10 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
   private def chooseInvoker(user: Identity, action: ExecutableWhiskActionMetaData): Future[InstanceId] = {
     logging.info(this, "choosing invoker")
     // Activation profile
-    val actProf = activationProfileMap.get(action.name).getOrElse(defaultActivationProfile)
+    val actProf = activationProfileMap.get(action.name.asString).getOrElse(defaultActivationProfile)
+    logging.info(this, s"activation profile $actProf")
     val chosenInvoker: Future[InstanceId] = invokerPool
-      .ask(AnalyzeActivation(actProf)(Timeout(5.seconds))
+      .ask(AnalyzeActivation(actProf))(Timeout(5.seconds))
       .mapTo[Option[InstanceId]]
       .flatMap {
         case Some(invoker) => Future.successful(invoker)
