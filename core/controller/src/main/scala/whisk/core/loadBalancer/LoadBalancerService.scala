@@ -53,7 +53,8 @@ import whisk.core.entity.types.EntityStore
 import whisk.spi.SpiLoader
 
 trait LoadBalancer {
-
+  val exploreCPUProbability = 0.1 /* percentage to just assume 1% */
+  val discardOldCPU = 0.05 /* 
   val activeAckTimeoutGrace = 1.minute
 
   /** Gets the number of in-flight activations for a specific user. */
@@ -127,6 +128,28 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
       .ask(GetStatus)(Timeout(5.seconds))
       .mapTo[IndexedSeq[(InstanceId, InvokerState)]]
 
+  private def processActivationDockerProfile(prof: DockerInterval) {
+    activationProfileMap.get(prof.name) match {
+      case Some(oldProfile) => {
+        // do moving average for io and network
+        val n = oldProfile.n
+        val newioThroughput = oldProfile.ioThroughput + ((prof.ioThroughput - oldProfile.ioThroughput)/(n+1))
+        val newNetworkThroughput = oldProfile.ioThroughput + ((prof.ioThroughput - oldProfile.ioThroughput)/(n+1))
+        var newCpu = oldProfile.cpuPerc.max(prof.cpuPerc)
+        if (Random.nextDouble() < discardOldCPU) {
+          newCpu = prof.cpuPerc // randomly decided to throw away the old cpu
+        }
+        val newProfile = ActivationProfile(newCpu, newioThroughput, newNetworkThroughput, n+1)
+        activationProfileMap.put(prof.name, newProfile)
+      }
+      case None() =>{
+        val newProfile = ActivationProfile(prof.cpuPerc, prof.ioThroughput, prof.networkThroughput, 1)
+        activationProfileMap.put(prof.name, newProfile)
+      }
+    }
+  
+  }
+
   /**
    * Tries to fill in the result slot (i.e., complete the promise) when a completion message arrives.
    * The promise is removed form the map when the result arrives or upon timeout.
@@ -141,7 +164,14 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
 
     // treat left as success (as it is the result of a message exceeding the bus limit)
     val isSuccess = response.fold(l => true, r => !r.response.isWhiskError)
-
+    if isSuccess {
+      response match {
+        case Left(l) => {}
+        case Right(whisk_activation) => {
+          whisk_activation.stats.foreach {dp => processActivationDockerProfile(dp)}
+        }
+      }
+    }
     loadBalancerData.removeActivation(aid) match {
       case Some(entry) =>
         logging.info(this, s"${if (!forced) "received" else "forced"} active ack for '$aid'")(tid)
@@ -283,7 +313,7 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
     val raw = new String(bytes, StandardCharsets.UTF_8)
     CompletionMessage.parse(raw) match {
       case Success(m: CompletionMessage) =>
-        logging.info(this, s"processing active ack with $m, $raw")
+        logging.info(this, s"processing active ack with $m")
         processCompletion(m.response, m.transid, forced = false, invoker = m.invoker)
         activationFeed ! MessageFeed.Processed
 
