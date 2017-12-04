@@ -51,10 +51,12 @@ import whisk.core.entity.UUID
 import whisk.core.entity.WhiskAction
 import whisk.core.entity.types.EntityStore
 import whisk.spi.SpiLoader
+import whisk.utils.DockerInterval
+import scala.util.Random
 
 trait LoadBalancer {
   val exploreCPUProbability = 0.1 /* percentage to just assume 1% */
-  val discardOldCPU = 0.05 /* 
+  val discardOldCPU = 0.05 
   val activeAckTimeoutGrace = 1.minute
 
   /** Gets the number of in-flight activations for a specific user. */
@@ -106,7 +108,7 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
   }
   // Mapping from activation name to running activation profile 
   private val activationProfileMap = scala.collection.mutable.Map[String, ActivationProfile]()
-  private val defaultActivationProfile = ActivationProfile(1, 0, 0)
+  private val defaultActivationProfile = ActivationProfile(1, 0, 0, 0)
 
   override def activeActivationsFor(namespace: UUID) = loadBalancerData.activationCountOn(namespace)
 
@@ -142,7 +144,7 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
         val newProfile = ActivationProfile(newCpu, newioThroughput, newNetworkThroughput, n+1)
         activationProfileMap.put(prof.name, newProfile)
       }
-      case None() =>{
+      case None =>{
         val newProfile = ActivationProfile(prof.cpuPerc, prof.ioThroughput, prof.networkThroughput, 1)
         activationProfileMap.put(prof.name, newProfile)
       }
@@ -164,7 +166,7 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
 
     // treat left as success (as it is the result of a message exceeding the bus limit)
     val isSuccess = response.fold(l => true, r => !r.response.isWhiskError)
-    if isSuccess {
+    if (isSuccess) {
       response match {
         case Left(l) => {}
         case Right(whisk_activation) => {
