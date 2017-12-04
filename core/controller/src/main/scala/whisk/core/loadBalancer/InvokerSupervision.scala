@@ -440,38 +440,69 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
    * Calculate happiness based on latest profile
    */
   private def calculateHappiness(activationProfile: ActivationProfile): Double = {
-    var happiness: Double = 
-      activationProfile.ioThroughput.doubleValue() + activationProfile.networkThroughput.doubleValue()
+    var happiness: Double = 0
+
+    // Add ioHappiness
+    var ioHappiness: Double = activationProfile.ioThroughput.doubleValue()
+    invokerProfile map { case (_, v) =>
+      ioHappiness = ioHappiness + v.ioThroughput.doubleValue()
+    }
+    logging.info(this, s"calculated ioHappiness: $ioHappiness")
+    happiness = happiness + ioHappiness
+
+    // Add networkHappiness
+    var networkHappiness: Double = activationProfile.networkThroughput.doubleValue()
+    invokerProfile map { case (_, v) =>
+      networkHappiness = networkHappiness + v.networkThroughput.doubleValue()
+    }
+    logging.info(this, s"calculated networkHappiness: $networkHappiness")
+    happiness = happiness + networkHappiness
+
+    // Calculate CPU happniess
+    logging.info(this, s"calculating cpuHappiness")
+    var cpuHappiness: Double = 0
     val n = invokerProfile.size + 1
-    val pp = Array[BigDecimal](n)
+    val pp = Array.fill[BigDecimal](n)(0)
+    var unsat = 1
     val p: List[BigDecimal] = activationProfile.cpuPerc :: (invokerProfile map {
-      case (k,v) =>
-        happiness = happiness + v.ioThroughput.doubleValue()
-        happiness = happiness + v.networkThroughput.doubleValue()
+      case (_, v) => 
+        if (v.cpuPerc > 0)
+          unsat += 1
         v.cpuPerc
     }).toList
+    logging.info(this, s"p: $p")
     var shareLeft: BigDecimal = 1.0
-    var unsat = n
+    var nontrivial = unsat
 
-    while (shareLeft > 0 && unsat > 0) {
+    var timeout = 10
+    while (shareLeft > 0 && unsat > 0 && timeout > 0) {
+      logging.info(this, s"| spliting shareLeft $shareLeft among $unsat unsatisfied")
       val shareToGive: BigDecimal = shareLeft / unsat
       for (i <- 0 until n) {
         if (pp(i) < p(i)) {
           if (shareToGive < p(i) - pp(i)) {
+            logging.info(this, s"| | activation $i not satisfied (${pp(i)} / ${p(i)})")
             pp(i) = pp(i) + shareToGive
             shareLeft = shareLeft - shareToGive
           } else {
+            logging.info(this, s"| | activation $i satisfied (${p(i)})")
             pp(i) = p(i)
             unsat -= 1
             shareLeft = shareLeft - (p(i) - pp(i))
           }
         }
       }
+      timeout -= 1
     }
 
     for (i <- 0 until n) {
-      happiness = happiness + (pp(i) * pp(i) / p(i) / p(i)).doubleValue()
+      if (p(i) > 0)
+        cpuHappiness = cpuHappiness + (pp(i) * pp(i) / p(i) / p(i)).doubleValue()
     }
+    cpuHappiness = cpuHappiness / nontrivial
+    logging.info(this, s"calculated cpuHappiness: $cpuHappiness")
+    happiness = happiness + cpuHappiness
+    logging.info(this, s"calculated totalHappiness: $happiness")
     happiness
   }
 }
