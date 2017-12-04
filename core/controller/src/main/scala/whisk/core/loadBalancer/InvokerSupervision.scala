@@ -443,18 +443,22 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
     var happiness: Double = 0
 
     // Add ioHappiness
+    val ioNorm: Double = 1024 * 200
     var ioHappiness: Double = activationProfile.ioThroughput.doubleValue()
     invokerProfile map { case (_, v) =>
       ioHappiness = ioHappiness + v.ioThroughput.doubleValue()
     }
+    ioHappiness = 1 - ioHappiness / ioNorm
     logging.info(this, s"calculated ioHappiness: $ioHappiness")
     happiness = happiness + ioHappiness
 
     // Add networkHappiness
+    val networkNorm: Double = 1024 * 200
     var networkHappiness: Double = activationProfile.networkThroughput.doubleValue()
     invokerProfile map { case (_, v) =>
       networkHappiness = networkHappiness + v.networkThroughput.doubleValue()
     }
+    networkHappiness = 1 - networkHappiness / networkNorm
     logging.info(this, s"calculated networkHappiness: $networkHappiness")
     happiness = happiness + networkHappiness
 
