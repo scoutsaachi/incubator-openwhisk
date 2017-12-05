@@ -130,8 +130,9 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
       .ask(GetStatus)(Timeout(5.seconds))
       .mapTo[IndexedSeq[(InstanceId, InvokerState)]]
 
-  private def processActivationDockerProfile(prof: DockerInterval) {
-    activationProfileMap.get(prof.name) match {
+  private def processActivationDockerProfile(name:String, prof: DockerInterval) {
+    logging.info(this, s"putting profile in map,$name,$prof")
+    activationProfileMap.get(name) match {
       case Some(oldProfile) => {
         // do moving average for io and network
         val n = oldProfile.n
@@ -142,11 +143,11 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
           newCpu = prof.cpuPerc // randomly decided to throw away the old cpu
         }
         val newProfile = ActivationProfile(newCpu, newioThroughput, newNetworkThroughput, n+1)
-        activationProfileMap.put(prof.name, newProfile)
+        activationProfileMap.put(name, newProfile)
       }
       case None =>{
         val newProfile = ActivationProfile(prof.cpuPerc, prof.ioThroughput, prof.networkThroughput, 1)
-        activationProfileMap.put(prof.name, newProfile)
+        activationProfileMap.put(name, newProfile)
       }
     }
   
@@ -170,7 +171,7 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
       response match {
         case Left(l) => {}
         case Right(whisk_activation) => {
-          whisk_activation.stats.foreach {dp => processActivationDockerProfile(dp)}
+          whisk_activation.stats.foreach {dp => processActivationDockerProfile(whisk_activation.name.asString, dp)}
         }
       }
     }

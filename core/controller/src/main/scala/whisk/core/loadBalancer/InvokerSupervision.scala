@@ -448,7 +448,7 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
     invokerProfile map { case (_, v) =>
       ioHappiness = ioHappiness + v.ioThroughput.doubleValue()
     }
-    ioHappiness = 1 - ioHappiness / ioNorm
+    ioHappiness = 1 - (ioHappiness / ioNorm)*(ioHappiness/ioNorm)
     logging.info(this, s"calculated ioHappiness: $ioHappiness")
     happiness = happiness + ioHappiness
 
@@ -458,7 +458,7 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
     invokerProfile map { case (_, v) =>
       networkHappiness = networkHappiness + v.networkThroughput.doubleValue()
     }
-    networkHappiness = 1 - networkHappiness / networkNorm
+    networkHappiness = 1 - (networkHappiness / networkNorm)*(networkHappiness/networkNorm)
     logging.info(this, s"calculated networkHappiness: $networkHappiness")
     happiness = happiness + networkHappiness
 
