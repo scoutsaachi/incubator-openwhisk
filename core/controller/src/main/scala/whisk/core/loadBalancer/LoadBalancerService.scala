@@ -348,6 +348,7 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
 
   /** Determine which invoker this activation should go to. Due to dynamic conditions, it may return no invoker. */
   private def chooseInvoker(user: Identity, action: ExecutableWhiskActionMetaData): Future[InstanceId] = {
+    // Happiness scheduler
     logging.info(this, "choosing invoker")
     // Activation profile
     val actProf = activationProfileMap.get(action.name.asString).getOrElse(defaultActivationProfile)
@@ -361,10 +362,32 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
           logging.error(this, s"all invokers down")(TransactionId.invokerHealth)
           Future.failed(new LoadBalancerException("no invokers available"))
       }
-
+    
     val pickResult: InstanceId = Await.result(chosenInvoker, 5.second)
     logging.info(this, s"picked instance $pickResult ")
 
+    // Naive scheduler
+    loadBalancerData.activationCountPerInvoker.flatMap { currentActivations =>
+      allInvokers.flatMap { invokers =>
+        val invokersToUse = if (action.exec.pull) blackboxInvokers(invokers) else managedInvokers(invokers)
+        invokersToUse.map {
+          // Using a view defers the comparably expensive lookup to actual access of the element
+          case (instance, state) => (instance, state, currentActivations.getOrElse(instance.toString, 0))
+        }.filter {
+          _._2 == Healthy 
+        }.toList match {
+          case Nil => 
+            logging.error(this, s"all invokers down")(TransactionId.invokerHealth)
+            Future.failed(new LoadBalancerException("no invokers available"))
+          case invokers => 
+            val pickResult: InstanceId = invokers.minBy{_._3}._1
+            logging.info(this, s"picked instance $invokers ")
+            Future.successful(pickResult)
+        }
+      }
+    }
+
+    // Default openwhisk scheduler
     val hash = generateHash(user.namespace, action)
 
     loadBalancerData.activationCountPerInvoker.flatMap { currentActivations =>
