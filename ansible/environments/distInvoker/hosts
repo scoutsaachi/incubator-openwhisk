@@ -4,27 +4,26 @@
 ansible ansible_connection=local
 
 [registry]
-10.0.0.4          ansible_host=10.0.0.4
+10.0.1.5          ansible_host=10.0.1.5
 
 [edge]
-10.0.0.4          ansible_host=10.0.0.4 ansible_connection=local
+10.0.1.5          ansible_host=10.0.1.5 ansible_connection=local
 
 [controllers]
-controller0         ansible_host=10.0.0.4 ansible_connection=local
-controller1         ansible_host=10.0.0.4 ansible_connection=local
+controller0         ansible_host=10.0.1.5 ansible_connection=local
 
 [kafka]
-10.0.0.4          ansible_host=10.0.0.4 ansible_connection=local
+10.0.1.5          ansible_host=10.0.1.5 ansible_connection=local
 
 [invokers]
 invoker0            ansible_host=10.0.0.5 ansible_connection=local
 
 ; db group is only used if db_provider is CouchDB
 [db]
-10.0.0.4          ansible_host=10.0.0.4 ansible_connection=local
+10.0.1.5          ansible_host=10.0.1.5 ansible_connection=local
 
 [redis]
-10.0.0.4          ansible_host=10.0.0.4 ansible_connection=local
+10.0.1.5          ansible_host=10.0.1.5 ansible_connection=local
 
 [apigateway]
-10.0.0.4          ansible_host=10.0.0.4 ansible_connection=local
+10.0.1.5          ansible_host=10.0.1.5 ansible_connection=local
