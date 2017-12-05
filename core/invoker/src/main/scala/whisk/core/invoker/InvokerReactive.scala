@@ -17,14 +17,15 @@
 
 package whisk.core.invoker
 
+import spray.json._
 import java.nio.charset.StandardCharsets
 import java.time.Instant
-
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.Failure
 import scala.util.Success
-
+import whisk.utils.DockerStats
+import whisk.utils.DockerProfile
 import org.apache.kafka.common.errors.RecordTooLargeException
 
 import akka.actor.ActorRefFactory
@@ -112,7 +113,7 @@ class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: Messa
              blockingInvoke: Boolean,
              controllerInstance: InstanceId) => {
     implicit val transid = tid
-
+    logging.info(this, s"sending active ack with activation result ${activationResult.toJson}")
     def send(res: Either[ActivationId, WhiskActivation], recovery: Boolean = false) = {
       val msg = CompletionMessage(transid, res, instance)
 
@@ -152,12 +153,35 @@ class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: Messa
     }
     .get
 
+  def getAllStats() : Future[Map[String, DockerProfile]] = {
+    containerFactory.getActionContainerIDs()
+      .flatMap( idSeq => { //idSeq is Seq[ContainerId]
+        val listFutureMappings : List[Future[(String, DockerProfile)]] = idSeq.map(cId => { //cId is a ContainerId
+          containerFactory.getNameContainerStartTime(cId) // Future[String, OffsetDateTime]
+            .flatMap(nameTime => { //nameTime is a String, OffsetDateTime
+              val prof = DockerStats.getExactContainerStat(nameTime._1, Option(nameTime._2)) // Future[DockerProfile]
+	            prof.flatMap(dp => Future(nameTime._1, dp)) // Future[String, DockerProfile]
+            }) // Future[String. Future[DockerProfile]]
+        }).toList // Seq[Future[String , DockerProfile]]
+
+        Future.sequence(listFutureMappings) // Future[List[String,DockerProfile]]
+          .flatMap( l => { // List[String, DockerProfile]
+            val m = l.toMap // Map[String->DockerProfile]
+	          Future(m)
+            //Future.sequence(map.map(entry => entry._2.map(i => (entry._1, i)))).map(_.toMap)
+          }) // Future[Map[String->DockerProfile]]
+      }) //Future[Map[String->DockerProfile]]]
+  }
+
   val pool = actorSystem.actorOf(
     ContainerPool.props(
       childFactory,
+      instance,
+      getAllStats,
       maximumContainers,
       maximumContainers,
       activationFeed,
+      producer,
       Some(PrewarmingConfig(2, prewarmExec, 256.MB))))
 
   /** Is called when an ActivationMessage is read from Kafka */

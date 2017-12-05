@@ -18,19 +18,30 @@
 package whisk.core.containerpool
 
 import scala.collection.immutable
+import scala.concurrent.duration._
+import scala.concurrent._
+import scala.util.{Success, Failure}
 
 import akka.actor.Actor
 import akka.actor.ActorRef
 import akka.actor.ActorRefFactory
 import akka.actor.Props
+import akka.actor.Timers
 import whisk.common.AkkaLogging
+import whisk.utils.DockerProfile
+import whisk.utils.DockerStats
 
+import whisk.core.connector.MessageProducer
+import whisk.core.connector.PingMessage
 import whisk.core.entity.ByteSize
 import whisk.core.entity.CodeExec
 import whisk.core.entity.EntityName
 import whisk.core.entity.ExecutableWhiskAction
+import whisk.core.entity.InstanceId
 import whisk.core.entity.size._
 import whisk.core.connector.MessageFeed
+import scala.concurrent.{Future, Await}
+import whisk.utils.DockerProfile 
 
 sealed trait WorkerState
 case object Busy extends WorkerState
@@ -59,17 +70,24 @@ case class WorkerData(data: ContainerData, state: WorkerState)
  * @param feed actor to request more work from
  * @param prewarmConfig optional settings for container prewarming
  */
+
 class ContainerPool(childFactory: ActorRefFactory => ActorRef,
+                    invokerInstance: InstanceId,
+                    getStatsFn : () => Future[Map[String, DockerProfile]],
                     maxActiveContainers: Int,
                     maxPoolSize: Int,
                     feed: ActorRef,
+                    producer: MessageProducer,
                     prewarmConfig: Option[PrewarmingConfig] = None)
-    extends Actor {
+    extends Actor with Timers {
+  import ExecutionContext.Implicits.global
   implicit val logging = new AkkaLogging(context.system.log)
 
   var freePool = immutable.Map.empty[ActorRef, ContainerData]
   var busyPool = immutable.Map.empty[ActorRef, ContainerData]
   var prewarmedPool = immutable.Map.empty[ActorRef, ContainerData]
+  var profile = Array(immutable.Map.empty[String, DockerProfile], immutable.Map.empty[String, DockerProfile])
+  var turn: Int = 0
 
   prewarmConfig.foreach { config =>
     logging.info(this, s"pre-warming ${config.count} ${config.exec.kind} containers")
@@ -78,8 +96,40 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
     }
   }
 
+  import ContainerPool.{TickKey, Tick}
+  timers.startPeriodicTimer(TickKey, Tick, 10.second)
+
+  protected def collectProfile() : Option[Map[String, DockerProfile]] = {
+    val dockerf : Future[Map[String, DockerProfile]] = getStatsFn()
+    Await.ready(dockerf, Duration.Inf).value.get match {
+      case Success(m) => Option(m)
+      case Failure(e) => {
+        logging.error(this, s"got error from collectProfile $e")
+        None
+      }
+    }
+  }
+
+  protected def updateProfile() = {
+    collectProfile() match {
+      case Some(profMap) => {
+        profile(turn) = profMap
+        turn = 1 - turn
+      }
+      case None => {}
+    }
+  }
+
   def receive: Receive = {
     // A job to run on a container
+    case Tick =>
+      updateProfile()
+      val dockerIntervalMap = DockerStats.computeNewDockerSummary(profile(turn), profile(1- turn))
+      producer.send("health", PingMessage(invokerInstance, Some(dockerIntervalMap))).andThen {
+        case Failure(t) => logging.error(this, s"failed to send profile: $t")
+        case _ => logging.info(this, "sent profile.")
+      }
+      logging.info(this, "Tick.")
     case r: Run =>
       val container = if (busyPool.size < maxActiveContainers) {
         // Schedule a job to a warm container
@@ -233,11 +283,17 @@ object ContainerPool {
   }
 
   def props(factory: ActorRefFactory => ActorRef,
+            instance: InstanceId,
+            getStatsFn : () => Future[Map[String, DockerProfile]],
             maxActive: Int,
             size: Int,
             feed: ActorRef,
-            prewarmConfig: Option[PrewarmingConfig] = None) =
-    Props(new ContainerPool(factory, maxActive, size, feed, prewarmConfig))
+            producer: MessageProducer,
+            prewarmConfig: Option[PrewarmingConfig] = None) = Props(new ContainerPool(factory, instance, getStatsFn, maxActive, size, feed, producer, prewarmConfig))
+
+  private case object TickKey
+  private case object Tick
+
 }
 
 /** Contains settings needed to perform container prewarming */

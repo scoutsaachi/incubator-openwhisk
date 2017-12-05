@@ -28,6 +28,8 @@ import whisk.core.entity.FullyQualifiedEntityName
 import whisk.core.entity.Identity
 import whisk.core.entity.InstanceId
 import whisk.core.entity.WhiskActivation
+import whisk.utils.DockerInterval
+// import whisk.utils.DockerProfile
 
 /** Basic trait for messages that are sent on a message bus connector. */
 trait Message {
@@ -110,11 +112,11 @@ object CompletionMessage extends DefaultJsonProtocol {
   private val serdes = jsonFormat3(CompletionMessage.apply)
 }
 
-case class PingMessage(instance: InstanceId) extends Message {
+case class PingMessage(instance: InstanceId, profile: Option[Map[String, DockerInterval]] = None) extends Message {
   override def serialize = PingMessage.serdes.write(this).compactPrint
 }
 
 object PingMessage extends DefaultJsonProtocol {
   def parse(msg: String) = Try(serdes.read(msg.parseJson))
-  implicit val serdes = jsonFormat(PingMessage.apply _, "name")
+  implicit val serdes = jsonFormat(PingMessage.apply, "name", "profile")
 }

@@ -16,10 +16,10 @@
  */
 
 package whisk.core.containerpool
-
+import whisk.utils.{DockerStats, DockerInterval, DockerProfile}
 import java.time.Instant
 import scala.concurrent.ExecutionContext
-import scala.concurrent.Future
+import scala.concurrent.{Future, Await}
 import scala.concurrent.duration.Duration
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.duration._
@@ -108,9 +108,18 @@ trait Container {
 
   /** Runs code in the container. */
   def run(parameters: JsObject, environment: JsObject, timeout: FiniteDuration)(
-    implicit transid: TransactionId): Future[(Interval, ActivationResponse)] = {
+    implicit transid: TransactionId): Future[(Interval, ActivationResponse, Option[DockerInterval])] = {
     val actionName = environment.fields.get("action_name").map(_.convertTo[String]).getOrElse("")
-    val start =
+    // get profile here
+    val startProf : Option[DockerProfile] =  Await.ready(DockerStats.getExactContainerStat(id.asString, None), Duration.Inf).value.get match {
+      case Success(m) => Option(m)
+      case Failure(e) => {
+        logging.error(this, "got error from getting activation stat $e")
+        None
+      }
+    }
+
+    val start = 
       transid.started(this, LoggingMarkers.INVOKER_ACTIVATION_RUN, s"sending arguments to $actionName at $id $addr")
 
     val parameterWrapper = JsObject("value" -> parameters)
@@ -132,8 +141,24 @@ trait Container {
         } else {
           ActivationResponse.processRunResponseContent(result.response, logging)
         }
-
-        (result.interval, response)
+        // get profile here
+        val endProf : Option[DockerProfile]=  Await.ready(DockerStats.getExactContainerStat(id.asString, None), Duration.Inf).value.get match {
+          case Success(m) => Option(m)
+          case Failure(e) => {
+            logging.error(this, "got error from getting activation stat $e")
+            None
+          }
+        }
+        val profInterval : Option[DockerInterval] = startProf match {
+          case Some(sP) => {
+            endProf match {
+              case Some(eP) => Option(DockerStats.createDockerInterval(sP, eP))
+              case None => None
+            }
+          }
+          case None => None
+        }
+        (result.interval, response, profInterval)
       }
   }
 

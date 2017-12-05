@@ -21,7 +21,7 @@ import java.time.Instant
 
 import scala.concurrent.Future
 import scala.util.Try
-
+import whisk.utils.DockerInterval
 import spray.json._
 import spray.json.DefaultJsonProtocol._
 import whisk.common.TransactionId
@@ -66,7 +66,8 @@ case class WhiskActivation(namespace: EntityPath,
                            version: SemVer = SemVer(),
                            publish: Boolean = false,
                            annotations: Parameters = Parameters(),
-                           duration: Option[Long] = None)
+                           duration: Option[Long] = None,
+                           stats: Option[DockerInterval]=None)
     extends WhiskEntity(EntityName(activationId.asString)) {
 
   require(cause != null, "cause undefined")
@@ -157,7 +158,7 @@ object WhiskActivation
    */
   private val filtersView = WhiskEntityQueries.view(filtersDdoc, collectionName)
 
-  override implicit val serdes = jsonFormat13(WhiskActivation.apply)
+  override implicit val serdes = jsonFormat14(WhiskActivation.apply)
 
   // Caching activations doesn't make much sense in the common case as usually,
   // an activation is only asked for once.

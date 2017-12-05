@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets
 
 import scala.collection.immutable
 import scala.concurrent.Future
+// import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.util.Failure
 import scala.util.Success
@@ -34,6 +35,7 @@ import akka.actor.FSM.SubscribeTransitionCallBack
 import akka.actor.FSM.Transition
 import akka.actor.Props
 import akka.pattern.pipe
+// import akka.pattern.ask
 import akka.util.Timeout
 import whisk.common.AkkaLogging
 import whisk.common.LoggingMarkers
@@ -43,7 +45,8 @@ import whisk.core.connector._
 import whisk.core.entitlement.Privilege
 import whisk.core.entity.ActivationId.ActivationIdGenerator
 import whisk.core.entity._
-
+import whisk.utils.Aggregator
+import whisk.utils.DockerInterval
 // Received events
 case object GetStatus
 
@@ -55,8 +58,13 @@ case object Offline extends InvokerState { val asString = "down" }
 case object Healthy extends InvokerState { val asString = "up" }
 case object UnHealthy extends InvokerState { val asString = "unhealthy" }
 
+case class ActivationProfile(cpuPerc: BigDecimal, ioThroughput: BigDecimal, networkThroughput: BigDecimal, n: BigDecimal)
+
 case class ActivationRequest(msg: ActivationMessage, invoker: InstanceId)
+case class AnalyzeActivation(profile: ActivationProfile)
+case class InstanceHappiness(instance: InstanceId, happiness: Double)
 case class InvocationFinishedMessage(invokerInstance: InstanceId, successful: Boolean)
+case class DockerIntervalMessage(intervalMap: Map[String, DockerInterval])
 
 // Data stored in the Invoker
 final case class InvokerInfo(buffer: RingBuffer[Boolean])
@@ -92,6 +100,16 @@ class InvokerPool(childFactory: (ActorRefFactory, InstanceId) => ActorRef,
     case p: PingMessage =>
       val invoker = instanceToRef.getOrElse(p.instance, registerInvoker(p.instance))
       instanceToRef = instanceToRef.updated(p.instance, invoker)
+      p.profile match {
+        case Some(prof) => 
+          logging.info(this, s"received invoker $prof ")
+          invoker.forward(DockerIntervalMessage(prof))
+          // val f: Future[Any] = self ? AnalyzeActivation(ActivationProfile("activation profile"))
+          // val pickResult: InstanceId = Await.result(f, 1.second).asInstanceOf[InstanceId]
+          // logging.info(this, s"picked instance $pickResult ")
+        case None => 
+          logging.info(this, "received invoker ping")
+      }
 
       invoker.forward(p)
 
@@ -112,6 +130,12 @@ class InvokerPool(childFactory: (ActorRefFactory, InstanceId) => ActorRef,
         status = status.updated(instance.toInt, (instance, newState))
       }
       logStatus()
+
+    case AnalyzeActivation(activation) =>
+      val sendBack = sender()
+      context.system.actorOf(Props {
+        new ActivationAnalyzer(sendBack, activation, instanceToRef)
+      })
 
     // this is only used for the internal test action which enabled an invoker to become healthy again
     case msg: ActivationRequest => sendActivationToInvoker(msg.msg, msg.invoker).pipeTo(sender)
@@ -139,6 +163,8 @@ class InvokerPool(childFactory: (ActorRefFactory, InstanceId) => ActorRef,
     val raw = new String(bytes, StandardCharsets.UTF_8)
     PingMessage.parse(raw) match {
       case Success(p: PingMessage) =>
+        // swap in the new values for profile information
+        logging.info(this, s"received from ping: $raw")
         self ! p
         invokerPingFeed ! MessageFeed.Processed
 
@@ -166,6 +192,55 @@ class InvokerPool(childFactory: (ActorRefFactory, InstanceId) => ActorRef,
     ref
   }
 
+}
+
+class ActivationAnalyzer(sendBack: ActorRef, activation: ActivationProfile, 
+                         instanceToRef: Map[InstanceId, ActorRef])
+    extends Actor with Aggregator {
+  implicit val ec = context.dispatcher
+  implicit val logging = new AkkaLogging(context.system.log)
+  var result: Option[InstanceHappiness] = None
+  var count: Int = 0
+
+  private case object TimeOut
+
+  if (instanceToRef.size > 0)
+    for ((instanceId, ref) <- instanceToRef) {
+      ref ! activation
+      expectOnce {
+        case i: InstanceHappiness if i.instance == instanceId =>
+            result match {
+              case Some(best) =>
+                if (i.happiness > best.happiness)
+                  result = Some(i)
+              case None =>
+                if (i.happiness > 0)
+                  result = Some(i)
+            }
+            count += 1
+            logging.info(this, s"received happiness from $instanceId, count = $count")
+            returnResult()
+      }
+    }
+  else returnResult()
+
+  context.system.scheduler.scheduleOnce(1.second, self, TimeOut)
+  expect {
+    case TimeOut =>
+      logging.info(this, s"Analyzer timed out")
+      returnResult(true)
+  }
+
+  def returnResult(force: Boolean = false) {
+    if (count == instanceToRef.size || force) {
+      logging.info(this, "sending back to caller")
+      sendBack ! (result match {
+        case Some(best) => Some(best.instance)
+        case None => None
+      })
+      context.stop(self)
+    }
+  }
 }
 
 object InvokerPool {
@@ -200,6 +275,7 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
   implicit val transid = TransactionId.invokerHealth
   implicit val logging = new AkkaLogging(context.system.log)
   val name = s"invoker${invokerInstance.toInt}"
+  var invokerProfile = immutable.Map.empty[String, DockerInterval]
 
   val healthyTimeout = 10.seconds
 
@@ -221,6 +297,9 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
    */
   when(Offline) {
     case Event(_: PingMessage, _) => goto(UnHealthy)
+    case Event(profile: ActivationProfile, _) =>
+      sender() ! InstanceHappiness(invokerInstance, -1.0)
+      stay
   }
 
   /**
@@ -233,6 +312,9 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
       invokeTestAction()
       stay
     }
+    case Event(profile: ActivationProfile, _) =>
+      sender() ! InstanceHappiness(invokerInstance, -1.0)
+      stay
   }
 
   /**
@@ -243,6 +325,10 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
   when(Healthy, stateTimeout = healthyTimeout) {
     case Event(_: PingMessage, _) => stay
     case Event(StateTimeout, _)   => goto(Offline)
+    case Event(profile: ActivationProfile, _) =>
+      logging.info(this, s"processing activation profile")
+      sender() ! InstanceHappiness(invokerInstance, calculateHappiness(profile))
+      stay
   }
 
   /**
@@ -250,6 +336,10 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
    */
   whenUnhandled {
     case Event(cm: InvocationFinishedMessage, info) => handleCompletionMessage(cm.successful, info.buffer)
+    case Event(msg: DockerIntervalMessage, _) => 
+      invokerProfile = msg.intervalMap
+      logging.info(this, s"invoker profile changed to $msg")
+      stay
   }
 
   /** Logging on Transition change */
@@ -345,6 +435,80 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
   private def gotoIfNotThere(newState: InvokerState) = {
     if (stateName == newState) stay() else goto(newState)
   }
+  
+  /**
+   * Calculate happiness based on latest profile
+   */
+  private def calculateHappiness(activationProfile: ActivationProfile): Double = {
+    var happiness: Double = 0
+
+    // Add ioHappiness
+    val ioNorm: Double = 1024 * 200
+    var ioHappiness: Double = activationProfile.ioThroughput.doubleValue()
+    invokerProfile map { case (_, v) =>
+      ioHappiness = ioHappiness + v.ioThroughput.doubleValue()
+    }
+    ioHappiness = 1 - (ioHappiness / ioNorm)*(ioHappiness/ioNorm)
+    logging.info(this, s"calculated ioHappiness: $ioHappiness")
+    happiness = happiness + ioHappiness
+
+    // Add networkHappiness
+    val networkNorm: Double = 1024 * 200
+    var networkHappiness: Double = activationProfile.networkThroughput.doubleValue()
+    invokerProfile map { case (_, v) =>
+      networkHappiness = networkHappiness + v.networkThroughput.doubleValue()
+    }
+    networkHappiness = 1 - (networkHappiness / networkNorm)*(networkHappiness/networkNorm)
+    logging.info(this, s"calculated networkHappiness: $networkHappiness")
+    happiness = happiness + networkHappiness
+
+    // Calculate CPU happniess
+    logging.info(this, s"calculating cpuHappiness")
+    var cpuHappiness: Double = 0
+    val n = invokerProfile.size + 1
+    val pp = Array.fill[BigDecimal](n)(0)
+    var unsat = 1
+    val p: List[BigDecimal] = activationProfile.cpuPerc :: (invokerProfile map {
+      case (_, v) => 
+        if (v.cpuPerc > 0)
+          unsat += 1
+        v.cpuPerc
+    }).toList
+    logging.info(this, s"p: $p")
+    var shareLeft: BigDecimal = 1.0
+    var nontrivial = unsat
+
+    var timeout = 10
+    while (shareLeft > 0 && unsat > 0 && timeout > 0) {
+      logging.info(this, s"| spliting shareLeft $shareLeft among $unsat unsatisfied")
+      val shareToGive: BigDecimal = shareLeft / unsat
+      for (i <- 0 until n) {
+        if (pp(i) < p(i)) {
+          if (shareToGive < p(i) - pp(i)) {
+            logging.info(this, s"| | activation $i not satisfied (${pp(i)} / ${p(i)})")
+            pp(i) = pp(i) + shareToGive
+            shareLeft = shareLeft - shareToGive
+          } else {
+            logging.info(this, s"| | activation $i satisfied (${p(i)})")
+            pp(i) = p(i)
+            unsat -= 1
+            shareLeft = shareLeft - (p(i) - pp(i))
+          }
+        }
+      }
+      timeout -= 1
+    }
+
+    for (i <- 0 until n) {
+      if (p(i) > 0)
+        cpuHappiness = cpuHappiness + (pp(i) * pp(i) / p(i) / p(i)).doubleValue()
+    }
+    cpuHappiness = cpuHappiness / nontrivial
+    logging.info(this, s"calculated cpuHappiness: $cpuHappiness")
+    happiness = happiness + cpuHappiness
+    logging.info(this, s"calculated totalHappiness: $happiness")
+    happiness
+  }
 }
 
 object InvokerActor {
@@ -356,3 +520,5 @@ object InvokerActor {
 
   val timerName = "testActionTimer"
 }
+
+

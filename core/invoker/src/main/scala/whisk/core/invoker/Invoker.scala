@@ -39,6 +39,7 @@ import whisk.core.WhiskConfig
 import whisk.core.WhiskConfig._
 import whisk.core.connector.MessagingProvider
 import whisk.core.connector.PingMessage
+// import whisk.core.connector.ProfileMessage
 import whisk.core.entity.ExecManifest
 import whisk.core.entity.InstanceId
 import whisk.core.entity.WhiskActivationStore
@@ -47,7 +48,6 @@ import whisk.http.BasicHttpService
 import whisk.spi.SpiLoader
 import whisk.utils.ExecutionContextFactory
 import whisk.common.TransactionId
-
 case class CmdLineArgs(name: Option[String] = None, id: Option[Int] = None)
 
 object Invoker {
@@ -73,8 +73,10 @@ object Invoker {
       Map(invokerName -> "")
 
   def main(args: Array[String]): Unit = {
+    //val dockerTest = DockerStats.getIds()
     Kamon.start()
-
+    // todo put this in the config
+    implicit val hostIPAddr = "10.0.1.4" // TODO change this
     implicit val ec = ExecutionContextFactory.makeCachedThreadPoolExecutionContext()
     implicit val actorSystem: ActorSystem =
       ActorSystem(name = "invoker-actor-system", defaultExecutionContext = Some(ec))
@@ -195,6 +197,13 @@ object Invoker {
       }
     })
 
+    // Scheduler.scheduleWaitAtMost(10.seconds)(() => {
+    //   producer.send("health", PingMessage(invokerInstance, Some("profile"))).andThen {
+    //     case Failure(t) => logger.error(this, s"failed to ping the controller with profile: $t")
+    //   }
+    // })
+
+    //val dockerTest = DockerStats.getIds()
     val port = config.servicePort.toInt
     BasicHttpService.startService(new InvokerServer().route, port)(actorSystem, ActorMaterializer.create(actorSystem))
   }

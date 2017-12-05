@@ -16,7 +16,7 @@
  */
 
 package whisk.core.containerpool
-
+import java.time.OffsetDateTime
 import akka.actor.ActorSystem
 import scala.concurrent.Future
 import whisk.common.Logging
@@ -44,6 +44,15 @@ trait ContainerFactory {
 
   /** cleanup any remaining Containers; should block until complete; should ONLY be run at startup/shutdown */
   def cleanup(): Unit
+
+  /* Docker specific */
+
+  /* get a list of all of the container ids */
+  def getActionContainerIDs() : Future[Seq[ContainerId]]
+
+  /* Provide the canonical name and container start time given a container id */
+  def getNameContainerStartTime(id: ContainerId): Future[(String, OffsetDateTime)]
+
 }
 
 /**

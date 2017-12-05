@@ -135,7 +135,7 @@ class DockerClient(dockerHost: Option[String] = None)(executionContext: Executio
   def isOomKilled(id: ContainerId)(implicit transid: TransactionId): Future[Boolean] =
     runCmd("inspect", id.asString, "--format", "{{.State.OOMKilled}}").map(_.toBoolean)
 
-  private def runCmd(args: String*)(implicit transid: TransactionId): Future[String] = {
+  protected def runCmd(args: String*)(implicit transid: TransactionId): Future[String] = {
     val cmd = dockerCmd ++ args
     val start = transid.started(this, LoggingMarkers.INVOKER_DOCKER_CMD(args.head), s"running ${cmd.mkString(" ")}")
     executeProcess(cmd: _*).andThen {

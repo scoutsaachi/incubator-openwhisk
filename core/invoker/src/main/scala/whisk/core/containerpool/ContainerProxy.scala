@@ -23,7 +23,7 @@ import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.Success
 import scala.util.Failure
-
+import whisk.utils.DockerInterval
 import akka.actor.FSM
 import akka.actor.Props
 import akka.actor.Stash
@@ -344,15 +344,16 @@ class ContainerProxy(factory: (TransactionId, String, ImageName, Boolean, ByteSi
           "deadline" -> (Instant.now.toEpochMilli + actionTimeout.toMillis).toString.toJson)
 
         container.run(parameters, environment, actionTimeout)(job.msg.transid).map {
-          case (runInterval, response) =>
+          case (runInterval, response, stats) =>
+            logging.info(this, s"trying to create activation with $stats")
             val initRunInterval =
               Interval(runInterval.start.minusMillis(initInterval.duration.toMillis), runInterval.end)
-            ContainerProxy.constructWhiskActivation(job, initRunInterval, response)
+            ContainerProxy.constructWhiskActivation(job, initRunInterval, response, stats)
         }
       }
       .recover {
         case InitializationError(interval, response) =>
-          ContainerProxy.constructWhiskActivation(job, interval, response)
+          ContainerProxy.constructWhiskActivation(job, interval, response, None)
         case t =>
           // Actually, this should never happen - but we want to make sure to not miss a problem
           logging.error(this, s"caught unexpected error while running activation: ${t}")
@@ -418,7 +419,7 @@ object ContainerProxy {
    * @param response the response to return to the user
    * @return a WhiskActivation to be sent to the user
    */
-  def constructWhiskActivation(job: Run, interval: Interval, response: ActivationResponse) = {
+  def constructWhiskActivation(job: Run, interval: Interval, response: ActivationResponse, statsValue: Option[DockerInterval]=None) = {
     val causedBy = if (job.msg.causedBySequence) Parameters("causedBy", "sequence".toJson) else Parameters()
     WhiskActivation(
       activationId = job.msg.activationId,
@@ -436,7 +437,8 @@ object ContainerProxy {
           Parameters("path", job.action.fullyQualifiedName(false).toString.toJson) ++
           Parameters("kind", job.action.exec.kind.toJson) ++
           causedBy
-      })
+      },
+      stats=statsValue)
   }
 }
 

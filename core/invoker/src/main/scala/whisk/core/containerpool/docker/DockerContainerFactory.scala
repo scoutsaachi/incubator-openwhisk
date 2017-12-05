@@ -16,7 +16,7 @@
  */
 
 package whisk.core.containerpool.docker
-
+import java.time.OffsetDateTime
 import akka.actor.ActorSystem
 import scala.concurrent.Await
 import scala.concurrent.ExecutionContext
@@ -24,6 +24,7 @@ import scala.concurrent.Future
 import whisk.common.Logging
 import whisk.common.TransactionId
 import whisk.core.WhiskConfig
+import whisk.core.containerpool.ContainerId
 import whisk.core.containerpool.Container
 import whisk.core.containerpool.ContainerFactory
 import whisk.core.containerpool.ContainerFactoryProvider
@@ -42,6 +43,18 @@ class DockerContainerFactory(config: WhiskConfig, instance: InstanceId, paramete
   /** Initialize container clients */
   implicit val docker = new DockerClientWithFileAccess()(ec)
   implicit val runc = new RuncClient(ec)
+
+  /* Provide access to docker ps */
+  def getActionContainerIDs() : Future[Seq[ContainerId]] = {
+    implicit val transid = TransactionId.invoker
+    docker.ps(filters = Seq("name" -> s"wsk${instance.toInt}_"))
+  }
+
+  /* Provide access to getNameContainerStartTime */
+  def getNameContainerStartTime(id: ContainerId): Future[(String, OffsetDateTime)] ={
+    implicit val transid = TransactionId.invoker
+    docker.getNameContainerStartTime(id)
+  }
 
   /** Create a container using docker cli */
   override def createContainer(tid: TransactionId,

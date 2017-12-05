@@ -16,9 +16,7 @@
  */
 
 package whisk.core.loadBalancer
-
 import java.nio.charset.StandardCharsets
-
 import scala.annotation.tailrec
 import scala.concurrent.Await
 import scala.concurrent.ExecutionContext
@@ -53,9 +51,12 @@ import whisk.core.entity.UUID
 import whisk.core.entity.WhiskAction
 import whisk.core.entity.types.EntityStore
 import whisk.spi.SpiLoader
+import whisk.utils.DockerInterval
+import scala.util.Random
 
 trait LoadBalancer {
-
+  val exploreCPUProbability = 0.1 /* percentage to just assume 1% */
+  val discardOldCPU = 0.05 
   val activeAckTimeoutGrace = 1.minute
 
   /** Gets the number of in-flight activations for a specific user. */
@@ -105,6 +106,9 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
       new DistributedLoadBalancerData()
     }
   }
+  // Mapping from activation name to running activation profile 
+  private val activationProfileMap = scala.collection.mutable.Map[String, ActivationProfile]()
+  private val defaultActivationProfile = ActivationProfile(1, 0, 0, 0)
 
   override def activeActivationsFor(namespace: UUID) = loadBalancerData.activationCountOn(namespace)
 
@@ -126,6 +130,29 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
       .ask(GetStatus)(Timeout(5.seconds))
       .mapTo[IndexedSeq[(InstanceId, InvokerState)]]
 
+  private def processActivationDockerProfile(name:String, prof: DockerInterval) {
+    logging.info(this, s"putting profile in map,$name,$prof")
+    activationProfileMap.get(name) match {
+      case Some(oldProfile) => {
+        // do moving average for io and network
+        val n = oldProfile.n
+        val newioThroughput = oldProfile.ioThroughput + ((prof.ioThroughput - oldProfile.ioThroughput)/(n+1))
+        val newNetworkThroughput = oldProfile.ioThroughput + ((prof.ioThroughput - oldProfile.ioThroughput)/(n+1))
+        var newCpu = oldProfile.cpuPerc.max(prof.cpuPerc)
+        if (Random.nextDouble() < discardOldCPU) {
+          newCpu = prof.cpuPerc // randomly decided to throw away the old cpu
+        }
+        val newProfile = ActivationProfile(newCpu, newioThroughput, newNetworkThroughput, n+1)
+        activationProfileMap.put(name, newProfile)
+      }
+      case None =>{
+        val newProfile = ActivationProfile(prof.cpuPerc, prof.ioThroughput, prof.networkThroughput, 1)
+        activationProfileMap.put(name, newProfile)
+      }
+    }
+  
+  }
+
   /**
    * Tries to fill in the result slot (i.e., complete the promise) when a completion message arrives.
    * The promise is removed form the map when the result arrives or upon timeout.
@@ -140,7 +167,14 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
 
     // treat left as success (as it is the result of a message exceeding the bus limit)
     val isSuccess = response.fold(l => true, r => !r.response.isWhiskError)
-
+    if (isSuccess) {
+      response match {
+        case Left(l) => {}
+        case Right(whisk_activation) => {
+          whisk_activation.stats.foreach {dp => processActivationDockerProfile(whisk_activation.name.asString, dp)}
+        }
+      }
+    }
     loadBalancerData.removeActivation(aid) match {
       case Some(entry) =>
         logging.info(this, s"${if (!forced) "received" else "forced"} active ack for '$aid'")(tid)
@@ -282,6 +316,7 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
     val raw = new String(bytes, StandardCharsets.UTF_8)
     CompletionMessage.parse(raw) match {
       case Success(m: CompletionMessage) =>
+        logging.info(this, s"processing active ack with $m")
         processCompletion(m.response, m.transid, forced = false, invoker = m.invoker)
         activationFeed ! MessageFeed.Processed
 
@@ -313,6 +348,23 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
 
   /** Determine which invoker this activation should go to. Due to dynamic conditions, it may return no invoker. */
   private def chooseInvoker(user: Identity, action: ExecutableWhiskActionMetaData): Future[InstanceId] = {
+    logging.info(this, "choosing invoker")
+    // Activation profile
+    val actProf = activationProfileMap.get(action.name.asString).getOrElse(defaultActivationProfile)
+    logging.info(this, s"activation profile $actProf")
+    val chosenInvoker: Future[InstanceId] = invokerPool
+      .ask(AnalyzeActivation(actProf))(Timeout(5.seconds))
+      .mapTo[Option[InstanceId]]
+      .flatMap {
+        case Some(invoker) => Future.successful(invoker)
+        case None =>
+          logging.error(this, s"all invokers down")(TransactionId.invokerHealth)
+          Future.failed(new LoadBalancerException("no invokers available"))
+      }
+
+    val pickResult: InstanceId = Await.result(chosenInvoker, 5.second)
+    logging.info(this, s"picked instance $pickResult ")
+
     val hash = generateHash(user.namespace, action)
 
     loadBalancerData.activationCountPerInvoker.flatMap { currentActivations =>

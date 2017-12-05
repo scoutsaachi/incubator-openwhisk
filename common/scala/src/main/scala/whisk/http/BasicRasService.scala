@@ -18,7 +18,6 @@
 package whisk.http
 
 import akka.event.Logging
-
 import whisk.common.Logging
 import whisk.common.TransactionId
 
