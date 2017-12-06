@@ -4,27 +4,40 @@ import time
 import json
 import re
 import pickle
+import random
 from subprocess import Popen, PIPE
 
-def main():
-  n = sys.argv[1]
-  f = sys.argv[2] 
-  print sys.argv
-  name = osp.splitext(osp.basename(f))[0]
-  process = []
-  activationIds = []
-  durations = {}
-  os.system(" ".join(["bin/wsk -i action create", name, f]))
-  cmd = " ".join(["bin/wsk -i action invoke", name] + sys.argv[3:]) 
-  print(cmd)
-  for i in xrange(10):
-    process.append(Popen(cmd, shell=True, stdout=PIPE))
-  for p in process:
+n = 20
+p = [0.2, 0.8]
+cfgs = [
+         ['custom_rules/cpu_intensive.py', '--param t 1'],
+         ['custom_rules/cpu_intensive.py', '--param t 1']
+       ]
+
+class Action:
+  def __init__(self, cfg):
+    self.file_name = cfg[0]
+    print self.file_name
+    self.name = osp.splitext(osp.basename(self.file_name))[0]
+    self.args = cfg[1]
+    self.ids = []
+    self.procs = []
+    self.results = {}
+
+  def create(self):
+    os.system(" ".join(["bin/wsk -i action create", self.name, self.file_name]))
+
+  def invoke(self):
+    cmd = " ".join(["bin/wsk -i action invoke", self.name, self.args])
+    p = Popen(cmd, shell=True, stdout=PIPE)
     out, _ = p.communicate()
     m = re.match('ok: invoked .* with id (\w+)', out)
-    activationIds.append(m.group(1)) 
+    self.ids.append(m.group(1)) 
 
-  def fetch(field):
+  def delete(self):
+    os.system(" ".join(["bin/wsk -i action delete", self.name]))
+
+  def getAllResult(self, field='duration'):
     def f(id):
       g = Popen(" ".join(["bin/wsk -i activation get", id]), shell=True, stdout=PIPE)
       ret, _ = g.communicate()
@@ -32,18 +45,43 @@ def main():
       if not m:
         return True
       result = json.loads(m.group(1))
-      durations[id] = result[field] 
+      self.results[id] = result[field]
       return False
-    return f
 
-  while activationIds:
-    print 'waiting for {} activations to finish.'.format(len(activationIds))
-    time.sleep(5)  
-    activationIds = filter(fetch('duration'), activationIds) 
-  os.system(" ".join(["bin/wsk -i action delete", name]))
-  with open(osp.splitext(f)[0] + '.pkl', 'w') as fid:
-    pickle.dump(osp.splitext(f)[0] + '.pkl', fid)
-  print durations
+    self.ids = filter(f, self.ids)
+    return len(self.ids)
+
+def main():
+  acc = [sum(p[0:i+1]) for i in xrange(len(p))]
+  print n, p, acc
+    
+  actions = []
+  for cfg in cfgs:
+    actions.append(Action(cfg))
+    
+  for action in actions:
+    action.create()
+
+  time.sleep(5)
+
+  for i in xrange(n):
+    r = random.random()
+    k = 0
+    while r > acc[k]: k += 1
+    print 'invoking action no.{} {}'.format(k, actions[k].name)
+    actions[k].invoke() 
+    time.sleep(1) 
+  
+  for action in actions:
+    while action.getAllResult() > 0: time.sleep(10)
+
+  with open('result.pkl', 'w') as fid:
+    result = [action.results for action in actions]
+    print result
+    pickle.dump(result, fid)
+
+  for action in actions:
+    action.delete()
 
 if __name__ == '__main__':
   main()
