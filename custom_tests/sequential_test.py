@@ -7,10 +7,10 @@ import pickle
 import random
 from subprocess import Popen, PIPE
 
-n = 400
+n = 200
 p = [0.5, 0.5]
 cfgs = [
-         ['custom_rules/cpu_intensive.py', '--param t 30'],
+         ['custom_rules/cpu_intensive.py', '--param t 50'],
          ['custom_rules/curl_test.py', '']
        ]
 
@@ -25,7 +25,7 @@ class Action:
     self.results = {}
 
   def create(self):
-    os.system(" ".join(["bin/wsk -i action create -t 300000", self.name, self.file_name]))
+    os.system(" ".join(["bin/wsk -i action create", self.name, self.file_name]))
 
   def invoke(self):
     cmd = " ".join(["bin/wsk -i action invoke", self.name, self.args])
@@ -65,13 +65,11 @@ def main():
   time.sleep(5)
 
   for i in xrange(n):
-    #r = random.random()
-    #k = 0
-    #while r > acc[k]: k += 1
-    k = 0 if i % 3 == 0 else 1
+    k=1
+    if i % 2 == 0: k=0
     print 'invoking action no.{} {} {}'.format(k, actions[k].name, i)
     actions[k].invoke() 
-    time.sleep(6) 
+    time.sleep(5) 
   
   for action in actions:
     while action.getAllResult() > 0: time.sleep(10)

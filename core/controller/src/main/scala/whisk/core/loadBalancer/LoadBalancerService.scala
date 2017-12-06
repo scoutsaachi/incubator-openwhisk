@@ -90,7 +90,7 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
   /** The execution context for futures */
   implicit val executionContext: ExecutionContext = actorSystem.dispatcher
 
-  private val schedulerType = 2 // 0 for open whisk default, 1 for load balance, 2 for happiness scheduler
+  private val schedulerType = 1 // 0 for open whisk default, 1 for load balance, 2 for happiness scheduler
 
   /** How many invokers are dedicated to blackbox images.  We range bound to something sensical regardless of configuration. */
   private val blackboxFraction: Double = Math.max(0.0, Math.min(1.0, config.controllerBlackboxFraction))
