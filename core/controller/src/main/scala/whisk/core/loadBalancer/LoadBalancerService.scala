@@ -351,6 +351,7 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
     // Happiness scheduler
     logging.info(this, "choosing invoker")
     // Activation profile
+    /*
     val actProf = activationProfileMap.get(action.name.asString).getOrElse(defaultActivationProfile)
     logging.info(this, s"activation profile $actProf")
     val chosenInvoker: Future[InstanceId] = invokerPool
@@ -359,34 +360,38 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
       .flatMap {
         case Some(invoker) => Future.successful(invoker)
         case None =>
-          logging.error(this, s"all invokers down")(TransactionId.invokerHealth)
+          logging.error(this, s"all invokers down in happiness scheduler")(TransactionId.invokerHealth)
           Future.failed(new LoadBalancerException("no invokers available"))
       }
     
     val pickResult: InstanceId = Await.result(chosenInvoker, 5.second)
-    logging.info(this, s"picked instance $pickResult ")
-
+    logging.info(this, s"picked instance via Happiness Scheduler $pickResult ")
+    */
     // Naive scheduler
+    
     loadBalancerData.activationCountPerInvoker.flatMap { currentActivations =>
       allInvokers.flatMap { invokers =>
-        val invokersToUse = if (action.exec.pull) blackboxInvokers(invokers) else managedInvokers(invokers)
-        invokersToUse.map {
+        //val invokersToUse = if (action.exec.pull) blackboxInvokers(invokers) else managedInvokers(invokers)
+        logging.info(this, s"naive scheduler invokers before filter $invokers") 
+        invokers.map {
           // Using a view defers the comparably expensive lookup to actual access of the element
           case (instance, state) => (instance, state, currentActivations.getOrElse(instance.toString, 0))
         }.filter {
-          _._2 == Healthy 
+          _._2 == Healthy //TODO keep as healthy 
         }.toList match {
           case Nil => 
             logging.error(this, s"all invokers down")(TransactionId.invokerHealth)
             Future.failed(new LoadBalancerException("no invokers available"))
-          case invokers => 
-            val pickResult: InstanceId = invokers.minBy{_._3}._1
-            logging.info(this, s"picked instance $invokers ")
+          case healthyInvokers => 
+            logging.info(this, s"naive scheduler invokers: $healthyInvokers")
+            val pickResult: InstanceId = healthyInvokers.minBy{_._3}._1
+            logging.info(this, s"picked instance via naive scheduler $pickResult ")
             Future.successful(pickResult)
         }
       }
     }
-
+    
+    /*
     // Default openwhisk scheduler
     val hash = generateHash(user.namespace, action)
 
@@ -399,13 +404,17 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
         }
 
         LoadBalancerService.schedule(invokersWithUsage, config.loadbalancerInvokerBusyThreshold, hash) match {
-          case Some(invoker) => Future.successful(invoker)
+          case Some(invoker) => {
+               logging.info(this, s"default scheduler picked $invoker")
+               Future.successful(invoker)
+          }
           case None =>
             logging.error(this, s"all invokers down")(TransactionId.invokerHealth)
             Future.failed(new LoadBalancerException("no invokers available"))
         }
       }
     }
+    */
   }
 
   /** Generates a hash based on the string representation of namespace and action */

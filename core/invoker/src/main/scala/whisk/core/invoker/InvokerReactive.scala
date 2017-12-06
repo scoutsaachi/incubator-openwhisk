@@ -154,6 +154,7 @@ class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: Messa
     .get
 
   def getAllStats() : Future[Map[String, DockerProfile]] = {
+    logging.info(this, s"invoker hosts are ${config.dockerEndpoint}, ${config.mainDockerEndpoint}, ${config.invokerName}, ${config.invokerContainerNetwork}. Hosts are ${config.invokerHosts}, instanceID is $instance")
     containerFactory.getActionContainerIDs()
       .flatMap( idSeq => { //idSeq is Seq[ContainerId]
         val listFutureMappings : List[Future[(String, DockerProfile)]] = idSeq.map(cId => { //cId is a ContainerId
