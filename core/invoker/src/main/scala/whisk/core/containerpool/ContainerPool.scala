@@ -97,7 +97,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
   }
 
   import ContainerPool.{TickKey, Tick}
-  timers.startPeriodicTimer(TickKey, Tick, 10.second)
+  timers.startPeriodicTimer(TickKey, Tick, 5.second)
 
   protected def collectProfile() : Option[Map[String, DockerProfile]] = {
     val dockerf : Future[Map[String, DockerProfile]] = getStatsFn()

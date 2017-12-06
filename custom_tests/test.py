@@ -7,11 +7,11 @@ import pickle
 import random
 from subprocess import Popen, PIPE
 
-n = 20
-p = [0.2, 0.8]
+n = 200
+p = [0.5, 0.5]
 cfgs = [
-         ['custom_rules/cpu_intensive.py', '--param t 1'],
-         ['custom_rules/cpu_intensive.py', '--param t 1']
+         ['custom_rules/cpu_intensive.py', '--param t 50'],
+         ['custom_rules/curl_test.py', '']
        ]
 
 class Action:
@@ -70,7 +70,7 @@ def main():
     while r > acc[k]: k += 1
     print 'invoking action no.{} {}'.format(k, actions[k].name)
     actions[k].invoke() 
-    time.sleep(1) 
+    time.sleep(5) 
   
   for action in actions:
     while action.getAllResult() > 0: time.sleep(10)

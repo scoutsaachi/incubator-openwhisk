@@ -94,7 +94,7 @@ class InvokerReactive(config: WhiskConfig, instance: InstanceId, producer: Messa
 
   /** Initialize message consumers */
   val topic = s"invoker${instance.toInt}"
-  val maximumContainers = config.invokerNumCore.toInt * config.invokerCoreShare.toInt
+  val maximumContainers = 20
   val msgProvider = SpiLoader.get[MessagingProvider]
   val consumer = msgProvider.getConsumer(
     config,

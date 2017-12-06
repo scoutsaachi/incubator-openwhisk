@@ -90,6 +90,8 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
   /** The execution context for futures */
   implicit val executionContext: ExecutionContext = actorSystem.dispatcher
 
+  private val schedulerType = 2 // 0 for open whisk default, 1 for load balance, 2 for happiness scheduler
+
   /** How many invokers are dedicated to blackbox images.  We range bound to something sensical regardless of configuration. */
   private val blackboxFraction: Double = Math.max(0.0, Math.min(1.0, config.controllerBlackboxFraction))
   logging.info(this, s"blackboxFraction = $blackboxFraction")(TransactionId.loadbalancer)
@@ -109,7 +111,6 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
   // Mapping from activation name to running activation profile 
   private val activationProfileMap = scala.collection.mutable.Map[String, ActivationProfile]()
   private val defaultActivationProfile = ActivationProfile(1, 0, 0, 0)
-
   override def activeActivationsFor(namespace: UUID) = loadBalancerData.activationCountOn(namespace)
 
   override def totalActiveActivations = loadBalancerData.totalActivationCount
@@ -346,12 +347,7 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
     invokers.take(managed)
   }
 
-  /** Determine which invoker this activation should go to. Due to dynamic conditions, it may return no invoker. */
-  private def chooseInvoker(user: Identity, action: ExecutableWhiskActionMetaData): Future[InstanceId] = {
-    // Happiness scheduler
-    logging.info(this, "choosing invoker")
-    // Activation profile
-    /*
+  private def happinessChooseInvoker(user: Identity, action: ExecutableWhiskActionMetaData): Future[InstanceId] = {
     val actProf = activationProfileMap.get(action.name.asString).getOrElse(defaultActivationProfile)
     logging.info(this, s"activation profile $actProf")
     val chosenInvoker: Future[InstanceId] = invokerPool
@@ -363,26 +359,27 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
           logging.error(this, s"all invokers down in happiness scheduler")(TransactionId.invokerHealth)
           Future.failed(new LoadBalancerException("no invokers available"))
       }
-    
+
     val pickResult: InstanceId = Await.result(chosenInvoker, 5.second)
     logging.info(this, s"picked instance via Happiness Scheduler $pickResult ")
-    */
-    // Naive scheduler
-    
-    loadBalancerData.activationCountPerInvoker.flatMap { currentActivations =>
-      allInvokers.flatMap { invokers =>
+    return chosenInvoker
+  }
+
+  private def loadBalanceChooseInvoker(user: Identity, action: ExecutableWhiskActionMetaData): Future[InstanceId] = {
+     loadBalancerData.activationCountPerInvoker.flatMap { currentActivations =>
+     allInvokers.flatMap { invokers =>
         //val invokersToUse = if (action.exec.pull) blackboxInvokers(invokers) else managedInvokers(invokers)
-        logging.info(this, s"naive scheduler invokers before filter $invokers") 
+        logging.info(this, s"naive scheduler invokers before filter $invokers")
         invokers.map {
           // Using a view defers the comparably expensive lookup to actual access of the element
           case (instance, state) => (instance, state, currentActivations.getOrElse(instance.toString, 0))
         }.filter {
-          _._2 == Healthy //TODO keep as healthy 
+          _._2 == Healthy //TODO keep as healthy
         }.toList match {
-          case Nil => 
+          case Nil =>
             logging.error(this, s"all invokers down")(TransactionId.invokerHealth)
             Future.failed(new LoadBalancerException("no invokers available"))
-          case healthyInvokers => 
+          case healthyInvokers =>
             logging.info(this, s"naive scheduler invokers: $healthyInvokers")
             val pickResult: InstanceId = healthyInvokers.minBy{_._3}._1
             logging.info(this, s"picked instance via naive scheduler $pickResult ")
@@ -390,11 +387,10 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
         }
       }
     }
-    
-    /*
-    // Default openwhisk scheduler
-    val hash = generateHash(user.namespace, action)
+  }
 
+  private def originalChooseInvoker(user: Identity, action: ExecutableWhiskActionMetaData): Future[InstanceId] = {
+    val hash = generateHash(user.namespace, action)
     loadBalancerData.activationCountPerInvoker.flatMap { currentActivations =>
       allInvokers.flatMap { invokers =>
         val invokersToUse = if (action.exec.pull) blackboxInvokers(invokers) else managedInvokers(invokers)
@@ -403,7 +399,8 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
           case (instance, state) => (instance, state, currentActivations.getOrElse(instance.toString, 0))
         }
 
-        LoadBalancerService.schedule(invokersWithUsage, config.loadbalancerInvokerBusyThreshold, hash) match {
+        val scheduleFuture : Option[InstanceId] = LoadBalancerService.schedule(invokersWithUsage, config.loadbalancerInvokerBusyThreshold, hash)
+        scheduleFuture match {
           case Some(invoker) => {
                logging.info(this, s"default scheduler picked $invoker")
                Future.successful(invoker)
@@ -414,7 +411,17 @@ class LoadBalancerService(config: WhiskConfig, instance: InstanceId, entityStore
         }
       }
     }
-    */
+  }
+
+  /** Determine which invoker this activation should go to. Due to dynamic conditions, it may return no invoker. */
+  private def chooseInvoker(user: Identity, action: ExecutableWhiskActionMetaData): Future[InstanceId] = {
+    // Happiness scheduler
+    logging.info(this, "choosing invoker")
+    schedulerType match {
+        case 0 => originalChooseInvoker(user, action)
+        case 1 => loadBalanceChooseInvoker(user, action)
+        case _ => happinessChooseInvoker(user, action)
+   }
   }
 
   /** Generates a hash based on the string representation of namespace and action */

@@ -18,7 +18,8 @@
 package whisk.core.loadBalancer
 
 import java.nio.charset.StandardCharsets
-
+import scala.math._
+import scala.BigDecimal._
 import scala.collection.immutable
 import scala.concurrent.Future
 // import scala.concurrent.Await
@@ -102,11 +103,8 @@ class InvokerPool(childFactory: (ActorRefFactory, InstanceId) => ActorRef,
       instanceToRef = instanceToRef.updated(p.instance, invoker)
       p.profile match {
         case Some(prof) => 
-          logging.info(this, s"received invoker $prof ")
+          logging.info(this, s"received invoker $p.instance ")
           invoker.forward(DockerIntervalMessage(prof))
-          // val f: Future[Any] = self ? AnalyzeActivation(ActivationProfile("activation profile"))
-          // val pickResult: InstanceId = Await.result(f, 1.second).asInstanceOf[InstanceId]
-          // logging.info(this, s"picked instance $pickResult ")
         case None => 
           logging.info(this, "received invoker ping")
       }
@@ -164,7 +162,7 @@ class InvokerPool(childFactory: (ActorRefFactory, InstanceId) => ActorRef,
     PingMessage.parse(raw) match {
       case Success(p: PingMessage) =>
         // swap in the new values for profile information
-        logging.info(this, s"received from ping: $raw")
+        //logging.info(this, s"received from ping: $raw")
         self ! p
         invokerPingFeed ! MessageFeed.Processed
 
@@ -338,7 +336,6 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
     case Event(cm: InvocationFinishedMessage, info) => handleCompletionMessage(cm.successful, info.buffer)
     case Event(msg: DockerIntervalMessage, _) => 
       invokerProfile = msg.intervalMap
-      logging.info(this, s"invoker profile changed to $msg")
       stay
   }
 
@@ -441,7 +438,7 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
    */
   private def calculateHappiness(activationProfile: ActivationProfile): Double = {
     var happiness: Double = 0
-
+    logging.info(this, s"calculating happiness for invoker $invokerInstance")
     // Add ioHappiness
     val ioNorm: Double = 1024 * 200
     var ioHappiness: Double = activationProfile.ioThroughput.doubleValue()
@@ -465,48 +462,57 @@ class InvokerActor(invokerInstance: InstanceId, controllerInstance: InstanceId) 
     // Calculate CPU happniess
     logging.info(this, s"calculating cpuHappiness")
     var cpuHappiness: Double = 0
-    val n = invokerProfile.size + 1
-    val pp = Array.fill[BigDecimal](n)(0)
-    var unsat = 1
-    val p: List[BigDecimal] = activationProfile.cpuPerc :: (invokerProfile map {
-      case (_, v) => 
-        if (v.cpuPerc > 0)
-          unsat += 1
-        v.cpuPerc
-    }).toList
-    logging.info(this, s"p: $p")
-    var shareLeft: BigDecimal = 1.0
-    var nontrivial = unsat
 
-    var timeout = 10
-    while (shareLeft > 0 && unsat > 0 && timeout > 0) {
+    val pFiltered: List[Double] = invokerProfile.map{ 
+      case (_, v) => v.cpuPerc.doubleValue()
+    }
+    .filter{_ != 0}.toList // not 0
+
+    // Calculate p*
+    val eps = 0.05
+    var maxP : Double = 0.0
+    if (pFiltered.length != 0) { maxP = pFiltered.reduceLeft(_ max _)}
+    val p_star: List[Double] = pFiltered.map{p_val => {
+       if (maxP - p_val <= eps) 1
+       else p_val
+    }}.toList
+
+    val p = activationProfile.cpuPerc.doubleValue() :: p_star // desired results of each job
+    logging.info(this, s"p: $p")
+    var shareLeft = 1.0
+
+    var unsat = p.length
+    var n = p.length
+    val pp = Array.fill[Double](n)(0)
+    while (shareLeft > 1e-5 && unsat > 0) {
       logging.info(this, s"| spliting shareLeft $shareLeft among $unsat unsatisfied")
-      val shareToGive: BigDecimal = shareLeft / unsat
+      val shareToGive: Double = shareLeft / unsat
       for (i <- 0 until n) {
         if (pp(i) < p(i)) {
           if (shareToGive < p(i) - pp(i)) {
-            logging.info(this, s"| | activation $i not satisfied (${pp(i)} / ${p(i)})")
             pp(i) = pp(i) + shareToGive
+            logging.info(this, s"| | activation $i not satisfied (${pp(i)} / ${p(i)})")
             shareLeft = shareLeft - shareToGive
           } else {
-            logging.info(this, s"| | activation $i satisfied (${p(i)})")
             pp(i) = p(i)
+            logging.info(this, s"| | activation $i satisfied (${p(i)})")
             unsat -= 1
             shareLeft = shareLeft - (p(i) - pp(i))
           }
         }
       }
-      timeout -= 1
     }
 
     for (i <- 0 until n) {
-      if (p(i) > 0)
-        cpuHappiness = cpuHappiness + (pp(i) * pp(i) / p(i) / p(i)).doubleValue()
+      if (p(i) > 0) {
+        cpuHappiness = cpuHappiness + sqrt((pp(i)/p(i)))
+        //cpuHappiness = cpuHappiness + (pp(i) * pp(i) / p(i) / p(i))
+      }
     }
-    cpuHappiness = cpuHappiness / nontrivial
-    logging.info(this, s"calculated cpuHappiness: $cpuHappiness")
+    cpuHappiness = cpuHappiness / p.length
+    logging.info(this, s"calculated cpuHappiness: $cpuHappiness for $invokerInstance")
     happiness = happiness + cpuHappiness
-    logging.info(this, s"calculated totalHappiness: $happiness")
+    logging.info(this, s"calculated totalHappiness: $happiness for $invokerInstance")
     happiness
   }
 }
