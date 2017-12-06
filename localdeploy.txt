@@ -1,22 +1,32 @@
 The steps to deploy on a distributed setup are as follows.
 
-Suppose we have 3 machines. We'll call them:
+Suppose we have 5 machines. We'll call them:
 Master - will run everything except for the actual functions
-Invoker0 - will run one of the invokers
-Invoker1 - will run the other invoker
+Invoker0
+Invoker1
+Invoker2
+Invoker3
+
 
 First, clone this repository onto each of the machines. Then install the necessary requirements:
   (cd tools/ubuntu-setup && ./all.sh)
   
-Run docker ps on each. Docker should be up, but there should be no containers at the moment (if there are, stop them
+Run sudo docker ps on each. Docker should be up, but there should be no containers at the moment (if there are, stop them
 with the appropriate clean method (see below)).
+
+If docker is not up, run sudo ./docker.sh from the ubuntu-setup folder
 
 We now need to tell the master and the invokers who each other are. In the Master's ansible/environments/distributed folder,
 change the IP addresses of the hosts file to match the IP addresses of invoker0 and invoker1. Also make sure that the number
 invoker instances in group_vars/all matches what you expect (so in this case 2). In each of the invoker's
-ansible/environments/distInvoker/hosts file, add the Master's IP address for everything except the invoker. Make sure there
-is only one invoker listed in the hosts file, and it is the IP of the invoker's machine. Also make sure that in the
-distInvoker/group_var/all that only one invoker is listed.
+ansible/environments/distInvoker/hosts file, add the Master's IP address for everything except the invoker. 
+
+Make sure there is only one invoker listed in the hosts file, and it is the IP of the invoker's machine.
+Also make sure that in the distInvoker/group_var/all that only one invoker is listed.
+In the roles/tasks/docker/deploy, change id and IP_ADDR field appropriately for invoker.
+
+
+For each machine: Navigate to the DockerStats file and change to the hostIpAddr to the machine's addr. Also go to /etc/init/docker.conf and add DOCKER_OPTS='-H tcp://0.0.0.0:4243 -H unix:///var/run/docker.sock'
 
 From this point on, all commands should be run from the ansible directory
 
@@ -55,6 +65,7 @@ From master perform: <if restarting a deployment, start here>
 run docker ps on Master. you should have controller0, controller1, kafka, zookeeper, couchdb, whisk_docker_registry as docker daemons.
 
 Go to the invokers and perform (on each):
+  sudo ./gradlew distDocker
   sudo ansible-playbook -i environments/distInvoker invoker.yml
 Run docker ps on each of the invokers, and you should see the invoker daemon plus some start up containers
 
@@ -72,6 +83,10 @@ To try out an action:
 You should get a hello message back. You're all done!
 
 When shutting down, make sure to shut down the invidual docker containers on each machine first.
+
+----
+notes: if you're getting registry errors, try adding as an insecure registry the master's registry on /etc/default/docker
+and "sudo service docker restart"
 
 
 
