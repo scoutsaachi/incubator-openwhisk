@@ -5,7 +5,7 @@ import java.time.OffsetDateTime
 import java.time.Duration
 import scala.util.{Try, Success, Failure}
 import scala.concurrent.{Future}
-
+import whisk.core.WhiskConfig
 /**
  * DockerProfile represents the profile of a single container at a single point in time
  * Fields:
@@ -45,7 +45,7 @@ object DockerInterval extends DefaultJsonProtocol {
 }
 
 object DockerStats {
-    val hostIPAddr = "10.0.1.4"
+    val hostIpAddr = WhiskConfig.readFromEnv("IP_ADDR").getOrElse("0.0.0.0")
     def computeNewDockerSummary(oldMap: Map[String, DockerProfile], newMap: Map[String, DockerProfile]) : Map[String, DockerInterval] = {
         (for ((name, newProf) <- newMap) yield {
             val interval = oldMap.get(name) match {
@@ -117,7 +117,7 @@ object DockerStats {
 
     // Get the docker profile corresponding to a name
     def getExactContainerStat(name: String, containerCreated: Option[OffsetDateTime]) : Future[DockerProfile] = {
-        val respTry = Try(scala.io.Source.fromURL(s"http://$hostIPAddr:4243/containers/$name/stats?stream=false").mkString)
+        val respTry = Try(scala.io.Source.fromURL(s"http://$hostIpAddr:4243/containers/$name/stats?stream=false").mkString)
         respTry match {
           case Success(resp) => Future.successful(extractMetricsFromResp(name, resp, containerCreated))
           case Failure(e) => Future.failed(e)

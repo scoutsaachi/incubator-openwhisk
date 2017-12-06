@@ -7,7 +7,7 @@ import pickle
 from subprocess import Popen, PIPE
 
 def main():
-  n = sys.argv[1]
+  n = int(sys.argv[1])
   f = sys.argv[2] 
   print sys.argv
   name = osp.splitext(osp.basename(f))[0]
@@ -17,7 +17,8 @@ def main():
   os.system(" ".join(["bin/wsk -i action create", name, f]))
   cmd = " ".join(["bin/wsk -i action invoke", name] + sys.argv[3:]) 
   print(cmd)
-  for i in xrange(10):
+  for i in xrange(n):
+    time.sleep(1)
     process.append(Popen(cmd, shell=True, stdout=PIPE))
   for p in process:
     out, _ = p.communicate()
